@@ -37,7 +37,7 @@ Go 服务端 + Windows TUI 客户端。输入昵称和共享密钥进入一个�
 
 指定默认服务器：
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Server ws://192.168.33.216:18080/ws -Version 0.2.0
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Server ws://192.168.33.216:18080/ws -Version 0.2.1
 
 产物：
 - dist/xchat.exe：Windows amd64 客户端。

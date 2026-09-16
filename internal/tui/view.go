@@ -55,8 +55,7 @@ func (model *Model) View() string {
 	}
 	width := max(20, model.width-4)
 	if !model.joined {
-		content := accent.Render("XCHAT / 内网聊天室") + "\n\n" + muted.Render(ansi.Truncate(model.address, width, "…")) + "\n\n" + "昵称\n" + model.nickname.View() + "\n\n密钥\n" + model.accessKey.View() + "\n\n" + warning.Render(ansi.Hardwrap(model.notice, width, true)) + "\n\n" + muted.Render("Tab 切换 · Enter 继续/进入 · Ctrl+C 退出\n需要共享密钥；昵称不是身份凭证")
-		return lipgloss.NewStyle().Padding(1, 1).Render(panel.Width(width).Padding(1, 1).Render(content))
+		return model.loginView()
 	}
 	header := accent.Render(" XCHAT ") + muted.Render("公共聊天室") + "  " + model.state + fmt.Sprintf(" · %d 人", len(model.users))
 	if len(model.pending) > 0 {
@@ -81,5 +80,5 @@ func (model *Model) View() string {
 	}
 	footer := muted.Render("Enter 发送 · PgUp/PgDn 翻页 · Ctrl+End 最新 · Ctrl+C 退出")
 	notice := warning.Render(ansi.Truncate(model.notice, width, "…"))
-	return strings.Join([]string{ansi.Truncate(header, model.width, "…"), body, model.input.View(), notice, ansi.Truncate(footer, model.width, "…")}, "\n")
+	return strings.Join([]string{ansi.Truncate(header, model.width, "…"), body, renderTextInput(model.input), notice, ansi.Truncate(footer, model.width, "…")}, "\n")
 }
