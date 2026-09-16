@@ -10,7 +10,7 @@ import (
 )
 
 func TestLoginDoesNotEmitNULOrDuplicateKeyField(t *testing.T) {
-	model := New("ws://192.168.33.216:18080/ws")
+	model := New("ws://127.0.0.1:18080/ws")
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	for _, stage := range []string{"initial", "nickname", "key-focused", "key-typed"} {
 		switch stage {
@@ -33,7 +33,7 @@ func TestLoginDoesNotEmitNULOrDuplicateKeyField(t *testing.T) {
 func TestLoginFrameFitsSmallTerminal(t *testing.T) {
 	for _, size := range [][2]int{{24, 10}, {40, 18}, {80, 20}, {100, 30}} {
 		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
-			model := New("ws://192.168.33.216:18080/ws")
+			model := New("ws://127.0.0.1:18080/ws")
 			model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 			model.nickname.SetValue("zmz")
 			before := model.View()

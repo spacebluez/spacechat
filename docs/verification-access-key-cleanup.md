@@ -1,5 +1,7 @@
 # 0.2.0 密钥与每日清理验收记录
 
+说明：实际主机、地址及环境标识已脱敏；示例值仅用于说明，不可直接用于生产部署。
+
 日期：2026-09-16，时区 Asia/Shanghai。开发分支：codex/access-key-daily-cleanup；不合并 main。
 
 ## 功能与交付
@@ -15,7 +17,7 @@
 | 项目 | 结果 |
 | --- | --- |
 | Windows go test ./... -count=1、go vet ./... | 通过 |
-| dev216 Linux go test -race ./... -count=1 | 通过 |
+| 目标服务器 Linux go test -race ./... -count=1 | 通过 |
 | 缺失/错误密钥、空配置、权限过宽配置 | 拒绝，通过 |
 | 实际 Windows EXE：昵称和密钥输入、密钥不出现在终端输出、中文收发、缩放及退出 | 通过 |
 | SQLite 事务清空、失败回滚、实例持久化及消息 ID 不回退 | 通过 |
@@ -23,22 +25,22 @@
 | 清理后刷新同步中客户端的在线成员列表 | 通过 |
 | 私有 socket 0600、活跃 socket/普通文件碰撞保护 | 通过 |
 | 隔离真实 systemd 短时 timer 调用 cleanup.sh，清空独立房间后继续收发 | 通过 |
-| 部署后的空/错误密钥测试（dev216 及 Windows 发起） | 通过 |
+| 部署后的空/错误密钥测试（目标服务器 及 Windows 发起） | 通过 |
 | 部署后的正确密钥双客户端发送确认 | 通过 |
 | 公共 POST /clear-history 不存在；私有接口 GET 不执行清理 | 404 / 405，通过 |
 | systemd 单元检查与北京时间日历解析 | 通过；仅有系统其他单元的历史路径警告 |
 
 ## 生产部署结果
 
-- 服务地址：ws://192.168.33.216:18080/ws。
+- 服务地址由部署配置提供，实际值已省略。
 - xchat.service 与 xchat-cleanup.timer 均 active、enabled。
 - 密钥文件：/etc/xchat/access.key，root:xchat、0640；按用户指定值配置，内容不公开。
 - 管理 socket：/run/xchat/admin.sock，xchat:xchat、0600。
 - 清理程序：/opt/xchat/cleanup.sh；调度单元：xchat-cleanup.timer / xchat-cleanup.service。
 - 下次触发：**2026-09-17 00:00:00 Asia/Shanghai**，对应 2026-09-16 16:00:00 UTC。
 - 默认 OnCalendar=*-*-* 00:00:00 Asia/Shanghai，AccuracySec=1s，Persistent=false。
-- 升级前备份：/var/lib/xchat-backups/before-access-cleanup-20260916-144757.db，目录 0700、文件 0600，仅 root 可读。
-- 升级前后均保留原有 47 条消息；没有提前手动清空生产聊天室。
+- 升级前已进行受限权限备份；实际备份位置由管理员维护，不在公开文档记录。
+- 升级前后均保留原有消息；没有提前手动清空生产聊天室。
 - 生产收发验收额外写入一条标记消息：XChat v0.2.0 deployment check 2026-09-16。
 
 ## 复验
@@ -60,7 +62,7 @@ Linux 专用隔离 timer 验收（需要 root/systemd 权限，会短暂创建�
 ## 边界与注意事项
 
 - 未等待次日真实午夜；已验证计划解析、已启用 timer 和隔离环境中真实定时触发。
-- 未重启 dev216 主机；只重启了 XChat 服务完成升级。
+- 未重启 目标服务器 主机；只重启了 XChat 服务完成升级。
 - 定时器不补跑停机期间错过的任务，避免服务恢复时意外删除新消息。
 - 每日清理是逻辑删除，不删除数据库文件、不安全擦除物理介质，也不删除管理员备份。
 - ws 仍为内网明文，共享密钥不是个人身份认证或传输加密。

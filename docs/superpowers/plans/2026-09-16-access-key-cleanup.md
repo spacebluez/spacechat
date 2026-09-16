@@ -1,5 +1,7 @@
 # Access Key and Daily Cleanup Implementation Plan
 
+说明：实际主机、地址及环境标识已脱敏；示例值仅用于说明，不可直接用于生产部署。
+
 > **For agentic workers:** Use executing-plans task-by-task in this session. No delegation. Commit and push only the requested development branch after verification.
 
 **Goal:** 交付带共享密钥与每日零点清理的新客户端和服务端。
@@ -10,9 +12,9 @@
 
 ## Global Constraints
 - 工作分支 codex/access-key-daily-cleanup，不修改 main。
-- 生产密钥只配置于 dev216 受限文件，不写源码、包、文档或日志。
+- 生产密钥只配置于 目标服务器 受限文件，不写源码、包、文档或日志。
 - 每天北京时间 00:00 全部清空，可配置时间；不重启服务，不直接删除数据库文件。
-- 输出源码、Windows amd64 客户端、Linux amd64 服务端；通过 dev216 推送。
+- 输出源码、Windows amd64 客户端、Linux amd64 服务端；通过 目标服务器 推送。
 
 ## Task 1: Authentication
 Files: internal/protocol/protocol.go; internal/server/server.go, auth_test.go; internal/accesskey/key.go, key_test.go; internal/client/client.go; internal/tui/model.go, view.go, auth_test.go; cmd/xchat-server/main.go.
@@ -40,4 +42,4 @@ Files: docs/verification-access-key-cleanup.md; dist/ artifacts.
 - [x] 构建 v0.2.0 客户端与服务端，运行实际 Windows EXE 昵称/密钥/中文测试。
 - [x] 部署配置密钥并升级服务，验证缺失与错误密钥被拒、正确密钥收发、socket 清理和继续收发。
 - [x] 核对北京时间零点计划和 service/timer 状态，打包源码与客户端。
-- [x] 审查 diff，确认生产密钥不在跟踪文件，提交并通过 dev216 推送开发分支，核验哈希。
+- [x] 审查 diff，确认生产密钥不在跟踪文件，提交并通过 目标服务器 推送开发分支，核验哈希。

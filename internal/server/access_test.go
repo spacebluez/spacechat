@@ -14,10 +14,10 @@ func TestNetworkRestrictionIgnoresForwardedHeader(t *testing.T) {
 	for _, test := range []struct {
 		address string
 		status  int
-	}{{"192.168.33.50:12345", 200}, {"127.0.0.1:12345", 200}, {"203.0.113.2:12345", 403}} {
+	}{{"192.168.1.50:12345", 200}, {"127.0.0.1:12345", 200}, {"203.0.113.2:12345", 403}} {
 		request := httptest.NewRequest("GET", "/healthz", nil)
 		request.RemoteAddr = test.address
-		request.Header.Set("X-Forwarded-For", "192.168.33.50")
+		request.Header.Set("X-Forwarded-For", "192.168.1.50")
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, request)
 		if recorder.Code != test.status {
