@@ -1,0 +1,24 @@
+[Unit]
+Description=XChat internal chat server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xchat
+Group=xchat
+WorkingDirectory=/var/lib/xchat
+EnvironmentFile=/etc/xchat/server.env
+ExecStart=/opt/xchat/xchat-server -listen ${XCHAT_LISTEN} -db /var/lib/xchat/chat.db -allow-cidr ${XCHAT_ALLOW_CIDR}
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/xchat
+
+[Install]
+WantedBy=multi-user.target
