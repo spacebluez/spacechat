@@ -37,7 +37,7 @@ func TestConnectSendHistoryAndCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer repository.Close()
-	service := server.New(repository)
+	service := server.New(repository, "test-access-key")
 	defer service.Close()
 	httpServer := httptest.NewServer(service.Handler())
 	defer httpServer.Close()
@@ -45,7 +45,7 @@ func TestConnectSendHistoryAndCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan struct{})
-	go func() { network.Run(ctx, "小明"); close(done) }()
+	go func() { network.Run(ctx, "小明", "test-access-key"); close(done) }()
 	awaitEvent(t, network.Events(), func(event Event) bool { return event.State == "connected" })
 	if err = network.Send("send-1", "你好"); err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestResumeFromEmptyAndNameConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer repository.Close()
-	service := server.New(repository)
+	service := server.New(repository, "test-access-key")
 	defer service.Close()
 	httpServer := httptest.NewServer(service.Handler())
 	defer httpServer.Close()
@@ -86,7 +86,7 @@ func TestResumeFromEmptyAndNameConflict(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go network.Run(ctx, "Alice")
+	go network.Run(ctx, "Alice", "test-access-key")
 	count := 0
 	awaitEvent(t, network.Events(), func(event Event) bool {
 		if event.Frame != nil && event.Frame.Type == "sync" {
@@ -102,7 +102,7 @@ func TestResumeFromEmptyAndNameConflict(t *testing.T) {
 		t.Fatalf("synced %d", count)
 	}
 	duplicate := New(address)
-	go duplicate.Run(ctx, "Alice")
+	go duplicate.Run(ctx, "Alice", "test-access-key")
 	awaitEvent(t, duplicate.Events(), func(event Event) bool { return event.State == "name_taken" })
 }
 func TestBadURLRejected(t *testing.T) {

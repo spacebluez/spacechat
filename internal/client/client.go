@@ -77,7 +77,7 @@ func (network *Client) queue(frame protocol.Frame) error {
 		return errors.New("发送队列已满，请稍后再试")
 	}
 }
-func (network *Client) Run(ctx context.Context, name string) {
+func (network *Client) Run(ctx context.Context, name, key string) {
 	defer close(network.events)
 	if err := ValidateAddress(network.address); err != nil {
 		network.emit(ctx, Event{State: "invalid_address", Detail: err.Error()})
@@ -91,12 +91,12 @@ func (network *Client) Run(ctx context.Context, name string) {
 	for ctx.Err() == nil {
 		network.emit(ctx, Event{State: "connecting", Detail: "正在连接服务器…"})
 		started := time.Now()
-		err := network.connect(ctx, name)
+		err := network.connect(ctx, name, key)
 		if ctx.Err() != nil {
 			return
 		}
 		var refusal *joinError
-		if errors.As(err, &refusal) && (refusal.code == "invalid_name" || (refusal.code == "name_taken" && !network.everConnected)) {
+		if errors.As(err, &refusal) && (refusal.code == "unauthorized" || refusal.code == "invalid_name" || (refusal.code == "name_taken" && !network.everConnected)) {
 			network.emit(ctx, Event{State: refusal.code, Detail: refusal.message})
 			return
 		}
@@ -127,7 +127,7 @@ func decode[Value any](frame protocol.Frame) (Value, error) {
 	err := json.Unmarshal(frame.Payload, &value)
 	return value, err
 }
-func (network *Client) connect(parent context.Context, name string) error {
+func (network *Client) connect(parent context.Context, name, key string) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	dialContext, dialCancel := context.WithTimeout(ctx, 10*time.Second)
@@ -139,7 +139,7 @@ func (network *Client) connect(parent context.Context, name string) error {
 	defer connection.CloseNow()
 	connection.SetReadLimit(2 * 1024 * 1024)
 	writeContext, writeCancel := context.WithTimeout(ctx, 10*time.Second)
-	err = wsjson.Write(writeContext, connection, protocol.Encode("join", "join", protocol.Join{Nickname: name, InstanceID: network.instance, AfterID: network.cursor}))
+	err = wsjson.Write(writeContext, connection, protocol.Encode("join", "join", protocol.Join{Nickname: name, AccessKey: key, InstanceID: network.instance, AfterID: network.cursor}))
 	writeCancel()
 	if err != nil {
 		return err
@@ -241,6 +241,17 @@ func (network *Client) connect(parent context.Context, name string) error {
 			}
 			network.cursor = max(network.cursor, message.ID)
 			continue
+		case "history_cleared":
+			cleared, err := decode[protocol.Cleared](frame)
+			if err != nil {
+				return err
+			}
+			network.instance = cleared.InstanceID
+			network.cursor = 0
+			network.everConnected = true
+			network.mu.Lock()
+			current.ready = true
+			network.mu.Unlock()
 		case "sync_complete":
 			complete, err := decode[protocol.Complete](frame)
 			if err != nil {

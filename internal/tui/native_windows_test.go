@@ -53,7 +53,7 @@ func TestWindowsExecutableInPseudoTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer repository.Close()
-	service := server.New(repository)
+	service := server.New(repository, "test-access-key")
 	defer service.Close()
 	httpServer := httptest.NewServer(service.Handler())
 	defer httpServer.Close()
@@ -102,10 +102,13 @@ func TestWindowsExecutableInPseudoTerminal(t *testing.T) {
 	defer windows.CloseHandle(process.Thread)
 	defer windows.TerminateProcess(process.Process, 1)
 	eventually(t, "login screen not rendered", func() bool { return capture.contains("XCHAT") })
-	if _, err = io.WriteString(input, "终端验收\r"); err != nil {
+	if _, err = io.WriteString(input, "终端验收\rtest-access-key\r"); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "nickname entry did not connect", func() bool { return capture.contains("已连接") })
+	if capture.contains("test-access-key") {
+		t.Fatal("access key leaked to terminal output")
+	}
 	if _, err = io.WriteString(input, "Windows 中文终端验收\r"); err != nil {
 		t.Fatal(err)
 	}

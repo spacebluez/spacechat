@@ -55,7 +55,7 @@ func (model *Model) View() string {
 	}
 	width := max(20, model.width-4)
 	if !model.joined {
-		content := accent.Render("XCHAT / 内网聊天室") + "\n\n" + muted.Render(ansi.Truncate(model.address, width, "…")) + "\n\n" + model.nickname.View() + "\n\n" + warning.Render(ansi.Hardwrap(model.notice, width, true)) + "\n\n" + muted.Render("Enter 进入 · Ctrl+C 退出\n公共历史可见，昵称不代表经过验证的身份")
+		content := accent.Render("XCHAT / 内网聊天室") + "\n\n" + muted.Render(ansi.Truncate(model.address, width, "…")) + "\n\n" + "昵称\n" + model.nickname.View() + "\n\n密钥\n" + model.accessKey.View() + "\n\n" + warning.Render(ansi.Hardwrap(model.notice, width, true)) + "\n\n" + muted.Render("Tab 切换 · Enter 继续/进入 · Ctrl+C 退出\n需要共享密钥；昵称不是身份凭证")
 		return lipgloss.NewStyle().Padding(1, 1).Render(panel.Width(width).Padding(1, 1).Render(content))
 	}
 	header := accent.Render(" XCHAT ") + muted.Render("公共聊天室") + "  " + model.state + fmt.Sprintf(" · %d 人", len(model.users))

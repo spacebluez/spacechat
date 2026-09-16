@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -20,20 +22,23 @@ type Repository interface {
 	LatestID() (int64, error)
 	Append(string, string) (protocol.Message, error)
 	Page(int64, int64, int64) (protocol.Page, error)
+	Clear() (int64, error)
 }
 
 type Server struct {
-	mu         sync.Mutex
-	repository Repository
-	sessions   map[string]*session
-	ctx        context.Context
-	cancel     context.CancelFunc
-	closed     bool
+	mu             sync.Mutex
+	repository     Repository
+	sessions       map[string]*session
+	ctx            context.Context
+	cancel         context.CancelFunc
+	closed         bool
+	accessKeyHash  [32]byte
+	authConfigured bool
 }
 
-func New(repository Repository) *Server {
+func New(repository Repository, key string) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Server{repository: repository, sessions: make(map[string]*session), ctx: ctx, cancel: cancel}
+	return &Server{repository: repository, sessions: make(map[string]*session), ctx: ctx, cancel: cancel, accessKeyHash: sha256.Sum256([]byte(key)), authConfigured: key != ""}
 }
 func (service *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -105,6 +110,10 @@ func (service *Server) serveConnection(writer http.ResponseWriter, request *http
 	}
 }
 func (service *Server) join(client *session, join protocol.Join) protocol.Failure {
+	provided := sha256.Sum256([]byte(join.AccessKey))
+	if !service.authConfigured || subtle.ConstantTimeCompare(service.accessKeyHash[:], provided[:]) != 1 {
+		return protocol.Failure{Code: "unauthorized", Message: "密钥错误，请重新输入"}
+	}
 	join.Nickname = strings.TrimSpace(join.Nickname)
 	if err := protocol.ValidateName(join.Nickname); err != nil {
 		return protocol.Failure{Code: "invalid_name", Message: err.Error()}
@@ -249,6 +258,9 @@ func (service *Server) handle(client *session, frame protocol.Frame) {
 		}
 		client.enqueue(protocol.Encode("history", frame.RequestID, page))
 	case "sync":
+		if !client.syncing {
+			return
+		}
 		var query protocol.Query
 		if !client.syncing || json.Unmarshal(frame.Payload, &query) != nil || query.AfterID != client.cursor || query.BeforeID != 0 {
 			fail("invalid_cursor", "同步游标无效")

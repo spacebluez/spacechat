@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -12,7 +13,7 @@ import (
 
 type Store struct {
 	database *sql.DB
-	instance string
+	instance atomic.Value
 }
 
 func Open(path string) (*Store, error) {
@@ -40,9 +41,11 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	repository := &Store{database: database}
-	if err = database.QueryRow("SELECT value FROM metadata WHERE key='instance_id'").Scan(&repository.instance); err != nil {
+	var instance string
+	if err = database.QueryRow("SELECT value FROM metadata WHERE key='instance_id'").Scan(&instance); err != nil {
 		return nil, err
 	}
+	repository.instance.Store(instance)
 	var version string
 	if err = database.QueryRow("SELECT value FROM metadata WHERE key='schema_version'").Scan(&version); err != nil {
 		return nil, err
@@ -54,7 +57,7 @@ func Open(path string) (*Store, error) {
 	return repository, nil
 }
 
-func (repository *Store) InstanceID() string { return repository.instance }
+func (repository *Store) InstanceID() string { return repository.instance.Load().(string) }
 func (repository *Store) Close() error       { return repository.database.Close() }
 func (repository *Store) LatestID() (int64, error) {
 	var latest int64

@@ -1,6 +1,6 @@
 param(
     [string]$Server = "ws://192.168.33.216:18080/ws",
-    [string]$Version = "0.1.0"
+    [string]$Version = "0.2.0"
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
@@ -19,7 +19,7 @@ try {
     $env:GOOS = "linux"
     go build -trimpath -ldflags "-s -w" -o dist/xchat-server-linux-amd64 ./cmd/xchat-server
     if ($LASTEXITCODE -ne 0) { throw "Server build failed" }
-    Copy-Item deploy/install.sh, deploy/xchat.service, README.md -Destination dist
+    Copy-Item deploy/install.sh, deploy/xchat.service, deploy/cleanup.sh, deploy/xchat-cleanup.service, deploy/xchat-cleanup.timer, README.md -Destination dist
     Compress-Archive -Path dist/xchat.exe, README.md -DestinationPath dist/xchat-windows-amd64.zip -Force
     $sourcePaths = @("cmd", "internal", "scripts", "deploy", "docs", "go.mod", "go.sum", "README.md", ".gitignore")
     Compress-Archive -Path $sourcePaths -DestinationPath dist/xchat-source.zip -Force
