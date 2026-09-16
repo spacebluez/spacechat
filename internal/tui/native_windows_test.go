@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -48,6 +49,11 @@ func TestWindowsExecutableInPseudoTerminal(t *testing.T) {
 	if executable == "" {
 		t.Skip("set XCHAT_EXE to test the built Windows executable")
 	}
+	for _, size := range []windows.Coord{{X: 100, Y: 30}, {X: 40, Y: 18}} {
+		t.Run(fmt.Sprintf("%dx%d", size.X, size.Y), func(t *testing.T) { testWindowsExecutableInPseudoTerminal(t, executable, size) })
+	}
+}
+func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size windows.Coord) {
 	repository, err := store.Open(filepath.Join(t.TempDir(), "chat.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +77,7 @@ func TestWindowsExecutableInPseudoTerminal(t *testing.T) {
 	output := os.NewFile(uintptr(outputRead), "terminal-output")
 	defer output.Close()
 	var pseudo windows.Handle
-	if err = windows.CreatePseudoConsole(windows.Coord{X: 100, Y: 30}, inputRead, outputWrite, 0, &pseudo); err != nil {
+	if err = windows.CreatePseudoConsole(size, inputRead, outputWrite, 0, &pseudo); err != nil {
 		t.Fatal(err)
 	}
 	defer windows.ClosePseudoConsole(pseudo)
@@ -102,7 +108,15 @@ func TestWindowsExecutableInPseudoTerminal(t *testing.T) {
 	defer windows.CloseHandle(process.Thread)
 	defer windows.TerminateProcess(process.Process, 1)
 	eventually(t, "login screen not rendered", func() bool { return capture.contains("XCHAT") })
-	if _, err = io.WriteString(input, "终端验收\rtest-access-key\r"); err != nil {
+	if _, err = io.WriteString(input, "终端验收\r"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "nickname was not rendered", func() bool { return capture.contains("终端验收") })
+	time.Sleep(650 * time.Millisecond)
+	if capture.contains("\x00") {
+		t.Fatal("focus switch emitted NUL characters to Windows terminal")
+	}
+	if _, err = io.WriteString(input, "test-access-key\r"); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "nickname entry did not connect", func() bool { return capture.contains("已连接") })

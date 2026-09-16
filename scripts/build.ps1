@@ -1,6 +1,6 @@
 param(
     [string]$Server = "ws://192.168.33.216:18080/ws",
-    [string]$Version = "0.2.0"
+    [string]$Version = "0.2.1"
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent

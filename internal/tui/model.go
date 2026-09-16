@@ -347,6 +347,10 @@ func (model *Model) resize() {
 	model.viewport.Width = max(10, width)
 	model.viewport.Height = max(3, model.height-9)
 	model.input.Width = max(5, model.width-6)
-	model.nickname.Width = max(5, min(36, model.width-8))
+	loginWidth := model.width
+	if !model.compactLogin() {
+		loginWidth -= 8
+	}
+	model.nickname.Width = max(1, min(36, loginWidth-3))
 	model.accessKey.Width = model.nickname.Width
 }
