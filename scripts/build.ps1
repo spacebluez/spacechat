@@ -1,5 +1,5 @@
 param(
-    [string]$Server = "ws://192.168.33.216:18080/ws",
+    [string]$Server = "ws://127.0.0.1:18080/ws",
     [string]$Version = "0.2.1"
 )
 $ErrorActionPreference = "Stop"

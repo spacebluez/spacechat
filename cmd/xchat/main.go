@@ -10,7 +10,7 @@ import (
 	"xchat/internal/tui"
 )
 
-var defaultServer = "ws://192.168.33.216:18080/ws"
+var defaultServer = "ws://127.0.0.1:18080/ws"
 var version = "dev"
 
 func main() {
