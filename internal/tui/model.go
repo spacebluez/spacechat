@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"xchat/internal/accesskey"
 	"xchat/internal/client"
 	"xchat/internal/protocol"
 )
@@ -23,6 +24,7 @@ type Model struct {
 	address           string
 	name              string
 	nickname          textinput.Model
+	accessKey         textinput.Model
 	input             textinput.Model
 	viewport          viewport.Model
 	network           *client.Client
@@ -44,11 +46,17 @@ func New(address string) *Model {
 	nickname.CharLimit = 20
 	nickname.Prompt = "> "
 	nickname.Focus()
+	keyInput := textinput.New()
+	keyInput.Placeholder = "输入聊天室密钥"
+	keyInput.CharLimit = 256
+	keyInput.EchoMode = textinput.EchoPassword
+	keyInput.EchoCharacter = '*'
+	keyInput.Prompt = "> "
 	input := textinput.New()
 	input.Placeholder = "输入消息，Enter 发送"
 	input.CharLimit = 2000
 	input.Prompt = "> "
-	model := &Model{address: address, nickname: nickname, input: input, viewport: viewport.New(70, 15), width: 100, height: 26, pending: make(map[string]string), state: "未连接"}
+	model := &Model{address: address, nickname: nickname, accessKey: keyInput, input: input, viewport: viewport.New(70, 15), width: 100, height: 26, pending: make(map[string]string), state: "未连接"}
 	model.resize()
 	return model
 }
@@ -90,9 +98,26 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, tea.Quit
 		}
 		if !model.joined {
+			if value.String() == "tab" || value.String() == "shift+tab" {
+				if model.nickname.Focused() {
+					model.nickname.Blur()
+					return model, model.accessKey.Focus()
+				}
+				model.accessKey.Blur()
+				return model, model.nickname.Focus()
+			}
 			if value.String() == "enter" {
 				name := strings.TrimSpace(model.nickname.Value())
 				if err := protocol.ValidateName(name); err != nil {
+					model.notice = err.Error()
+					return model, nil
+				}
+				if model.nickname.Focused() {
+					model.nickname.Blur()
+					return model, model.accessKey.Focus()
+				}
+				key := model.accessKey.Value()
+				if err := accesskey.Validate(key); err != nil {
 					model.notice = err.Error()
 					return model, nil
 				}
@@ -102,15 +127,20 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.state = "连接中"
 				model.notice = ""
 				model.nickname.Blur()
+				model.accessKey.Blur()
 				model.input.Focus()
 				model.network = client.New(model.address)
 				ctx, cancel := context.WithCancel(context.Background())
 				model.cancel = cancel
 				network := model.network
-				return model, tea.Batch(textinput.Blink, func() tea.Msg { go network.Run(ctx, name); return waitEvent(network)() })
+				return model, tea.Batch(textinput.Blink, func() tea.Msg { go network.Run(ctx, name, key); return waitEvent(network)() })
 			}
 			var command tea.Cmd
-			model.nickname, command = model.nickname.Update(message)
+			if model.nickname.Focused() {
+				model.nickname, command = model.nickname.Update(message)
+			} else {
+				model.accessKey, command = model.accessKey.Update(message)
+			}
 			return model, command
 		}
 		switch value.String() {
@@ -158,6 +188,8 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	var command tea.Cmd
 	if model.joined {
 		model.input, command = model.input.Update(message)
+	} else if model.accessKey.Focused() {
+		model.accessKey, command = model.accessKey.Update(message)
 	} else {
 		model.nickname, command = model.nickname.Update(message)
 	}
@@ -199,11 +231,20 @@ func (model *Model) applyEvent(event client.Event) {
 				clear(model.pending)
 				model.refresh(false)
 			}
+		case "unauthorized":
+			model.connected = false
+			model.joined = false
+			model.notice = event.Detail
+			model.accessKey.Reset()
+			model.nickname.Blur()
+			model.accessKey.Focus()
+			model.input.Blur()
 		case "name_taken", "invalid_name", "invalid_address":
 			model.connected = false
 			model.joined = false
 			model.notice = event.Detail
 			model.nickname.Focus()
+			model.accessKey.Blur()
 			model.input.Blur()
 		}
 		return
@@ -213,6 +254,16 @@ func (model *Model) applyEvent(event client.Event) {
 	}
 	frame := *event.Frame
 	switch frame.Type {
+	case "history_cleared":
+		model.messages = nil
+		model.issues = nil
+		clear(model.pending)
+		model.hasMore = false
+		model.loading = false
+		model.connected = true
+		model.state = "已连接"
+		model.notice = "聊天记录已由服务端清空，可以继续聊天"
+		model.refresh(false)
 	case "welcome":
 		var welcome protocol.Welcome
 		if json.Unmarshal(frame.Payload, &welcome) != nil {
@@ -220,6 +271,8 @@ func (model *Model) applyEvent(event client.Event) {
 		}
 		model.users = welcome.Users
 		if !welcome.Resumed {
+			model.issues = nil
+			clear(model.pending)
 			model.messages = nil
 			model.hasMore = false
 			model.loading = false
@@ -295,4 +348,5 @@ func (model *Model) resize() {
 	model.viewport.Height = max(3, model.height-9)
 	model.input.Width = max(5, model.width-6)
 	model.nickname.Width = max(5, min(36, model.width-8))
+	model.accessKey.Width = model.nickname.Width
 }

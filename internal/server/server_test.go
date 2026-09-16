@@ -31,6 +31,7 @@ func connect(t *testing.T, address string, join protocol.Join) *peer {
 	}
 	t.Cleanup(func() { connection.CloseNow() })
 	client := &peer{connection, ctx}
+	join.AccessKey = "test-access-key"
 	client.send(t, "join", "join", join)
 	return client
 }
@@ -58,7 +59,7 @@ func fixture(t *testing.T) (*store.Store, *Server, *httptest.Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := New(repository)
+	service := New(repository, "test-access-key")
 	httpServer := httptest.NewServer(service.Handler())
 	t.Cleanup(func() { service.Close(); httpServer.Close(); repository.Close() })
 	return repository, service, httpServer
@@ -154,7 +155,7 @@ func TestWriteFailureNeverBroadcasts(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer repository.Close()
-	service := New(brokenStore{repository})
+	service := New(brokenStore{repository}, "test-access-key")
 	httpServer := httptest.NewServer(service.Handler())
 	defer httpServer.Close()
 	defer service.Close()

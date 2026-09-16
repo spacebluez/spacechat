@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"xchat/internal/accesskey"
+	"xchat/internal/admin"
 	"xchat/internal/server"
 	"xchat/internal/store"
 )
@@ -19,7 +21,14 @@ func main() {
 	address := flag.String("listen", "127.0.0.1:18080", "HTTP/WebSocket listen address")
 	databasePath := flag.String("db", "data/chat.db", "SQLite database path")
 	allowedNetworks := flag.String("allow-cidr", "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16", "Allowed client CIDRs")
+	keyPath := flag.String("key-file", "", "Required shared access key file")
+	adminSocket := flag.String("admin-socket", "", "Private administrative Unix socket path")
 	flag.Parse()
+	key, err := accesskey.Read(*keyPath)
+	if err != nil {
+		slog.Error("access key configuration", "error", err)
+		os.Exit(1)
+	}
 	if err := os.MkdirAll(filepath.Dir(*databasePath), 0750); err != nil {
 		slog.Error("database directory", "error", err)
 		os.Exit(1)
@@ -30,8 +39,16 @@ func main() {
 		os.Exit(1)
 	}
 	defer repository.Close()
-	service := server.New(repository)
+	service := server.New(repository, key)
 	defer service.Close()
+	if *adminSocket != "" {
+		management, err := admin.Start(*adminSocket, service)
+		if err != nil {
+			slog.Error("admin socket", "error", err)
+			os.Exit(1)
+		}
+		defer management.Close()
+	}
 	handler, err := server.RestrictNetworks(service.Handler(), *allowedNetworks)
 	if err != nil {
 		slog.Error("network configuration", "error", err)
