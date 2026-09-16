@@ -6,7 +6,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 release=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-listen="${1:-192.168.33.216:18080}"
+listen="${1:-127.0.0.1:18080}"
 allow="${2:-192.168.0.0/16,127.0.0.0/8}"
 case "$listen" in *[!0-9.:]*) printf '%s\n' 'Invalid listen address' >&2; exit 1 ;; esac
 case "$allow" in *[!0-9a-fA-F:.,/]*) printf '%s\n' 'Invalid CIDR list' >&2; exit 1 ;; esac

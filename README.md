@@ -8,9 +8,9 @@ Go 服务端 + Windows TUI 客户端。输入昵称进入一个公共聊天室�
 
     .\xchat.exe
 
-默认连接 ws://192.168.33.216:18080/ws（dev216）。输入昵称后按 Enter。客户端为 Windows x64 程序，不需要安装 Go；需网络可达公司内网服务器。建议用支持中文的终端字体。
+源码默认连接本机测试地址 ws://127.0.0.1:18080/ws；实际使用时通过 --server 或构建参数 -Server 指定管理员提供的地址。下文 chat.example.invalid 仅为占位示例，不是真实服务地址。输入昵称后按 Enter。客户端为 Windows x64 程序，不需要安装 Go；需网络可达公司内网服务器。建议用支持中文的终端字体。
 
-    .\xchat.exe --server ws://192.168.33.216:18080/ws
+    .\xchat.exe --server ws://chat.example.invalid:18080/ws
     .\xchat.exe --version
 
 | 操作 | 快捷键 |
@@ -36,7 +36,7 @@ Go 服务端 + Windows TUI 客户端。输入昵称进入一个公共聊天室�
 
 指定默认服务器：
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Server ws://192.168.33.216:18080/ws -Version 0.1.0
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Server ws://chat.example.invalid:18080/ws -Version 0.1.0
 
 产物：
 - dist/xchat.exe：Windows amd64 客户端。
@@ -56,9 +56,9 @@ Linux 也可以直接构建：
 
 服务器参数：--listen、--db、--allow-cidr。默认只监听 127.0.0.1:18080；默认来源白名单为回环地址和 RFC1918 私网。来源校验使用实际 TCP 对端地址，忽略 X-Forwarded-For。
 
-## 部署到 dev216
+## 部署到 Linux 服务器
 
-目标已检查为 Kylin V10 Linux x86_64，支持 systemd。安装前确认 18080 未被占用，将下列文件上传到同一临时目录：
+适用于支持 systemd 的 Linux amd64 服务器。部署前核验实际平台和端口，将下列文件上传到同一临时目录：
 
 - dist/xchat-server-linux-amd64
 - deploy/xchat.service
@@ -66,16 +66,16 @@ Linux 也可以直接构建：
 
 以 root 执行：
 
-    sh install.sh 192.168.33.216:18080 192.168.0.0/16,127.0.0.0/8
+    sh install.sh '<SERVER_IP>:18080' '<CLIENT_CIDR>,127.0.0.0/8'
 
 脚本创建 xchat 系统用户，将程序放在 /opt/xchat/xchat-server，数据库放在 /var/lib/xchat/chat.db，配置放在 /etc/xchat/server.env，服务注册为 xchat.service。开启开机启动并启动服务，**不重启主机、不修改系统防火墙、不覆盖历史数据库**。升级时保留前一个程序为 xchat-server.previous，已有 server.env 不会被覆盖。
 
     systemctl status xchat --no-pager
     systemctl is-enabled xchat
     journalctl -u xchat -n 100 --no-pager
-    curl http://192.168.33.216:18080/healthz
+    curl http://chat.example.invalid:18080/healthz
 
-默认部署只监听指定内网 IP，应用层只允许 192.168.0.0/16 和回环来源。如果公司客户端位于其他内网网段，管理员需编辑 /etc/xchat/server.env 的 XCHAT_ALLOW_CIDR，再重启服务。若启用了主机或网络防火墙，应按公司策略仅向所需内网网段开放 TCP 18080；不要直接全网开放。
+监听地址和客户端来源网段由部署者配置。请将 <SERVER_IP> 和 <CLIENT_CIDR> 替换为实际配置，实际值不要提交到仓库。如果公司客户端位于其他内网网段，管理员需编辑 /etc/xchat/server.env 的 XCHAT_ALLOW_CIDR，再重启服务。若启用了主机或网络防火墙，应按公司策略仅向所需内网网段开放 TCP 18080；不要直接全网开放。
 
     systemctl restart xchat
     systemctl stop xchat
