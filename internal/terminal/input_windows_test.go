@@ -4,6 +4,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/erikgeiser/coninput"
 	"testing"
+	"time"
 )
 
 func TestWindowsShiftEnterIsDistinct(t *testing.T) {
@@ -27,5 +28,20 @@ func TestNativeBracketedPasteNeverSendsEnter(t *testing.T) {
 	message := messages[0].(tea.KeyMsg)
 	if !message.Paste || string(message.Runes) != "one\ntwo" {
 		t.Fatalf("paste not preserved: %+v", message)
+	}
+}
+
+func TestNativeRoomSwitchAndEscape(t *testing.T) {
+	message := keyMessage(coninput.KeyEventRecord{KeyDown: true, VirtualKeyCode: coninput.VK_F2})
+	if message.Type != tea.KeyF2 {
+		t.Fatal("F2 not preserved")
+	}
+	decoder := pasteDecoder{}
+	var messages []tea.Msg
+	send := func(message tea.Msg) { messages = append(messages, message) }
+	decoder.feed(coninput.KeyEventRecord{KeyDown: true, VirtualKeyCode: coninput.VK_ESCAPE, Char: '\x1b'}, send)
+	decoder.flushPrefix(time.Now().Add(time.Second), send)
+	if len(messages) != 1 || messages[0].(tea.KeyMsg).Type != tea.KeyEsc {
+		t.Fatal("standalone Escape was swallowed")
 	}
 }

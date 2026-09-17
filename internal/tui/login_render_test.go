@@ -56,3 +56,14 @@ func TestLoginFrameFitsSmallTerminal(t *testing.T) {
 		})
 	}
 }
+
+func TestLoginFieldsHaveVisualSeparation(t *testing.T) {
+	model := New("ws://localhost/ws")
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 18})
+	lines := strings.Split(ansi.Strip(model.View()), "\n")
+	for index, line := range lines {
+		if strings.TrimSpace(line) == "房间口令" && (index == 0 || strings.TrimSpace(lines[index-1]) != "") {
+			t.Fatal("nickname and room key fields need a blank separator")
+		}
+	}
+}
