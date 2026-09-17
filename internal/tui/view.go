@@ -53,6 +53,9 @@ func (model *Model) View() string {
 	if model.width < 24 || model.height < 10 {
 		return "请扩大终端窗口（至少 24×10）\nCtrl+C 退出"
 	}
+	if model.switcher != nil {
+		return model.roomSwitchView()
+	}
 	width := max(20, model.width-4)
 	if !model.joined {
 		return model.loginView()
@@ -78,7 +81,7 @@ func (model *Model) View() string {
 		sidebar := panel.Width(20).Height(model.viewport.Height).Padding(0, 1).Render(strings.Join(names, "\n"))
 		body = lipgloss.JoinHorizontal(lipgloss.Top, body, sidebar)
 	}
-	footer := muted.Render("Enter 发送 · Shift+Enter 换行 · PgUp/PgDn 翻页 · Ctrl+End 最新 · Ctrl+C 退出")
+	footer := muted.Render("F2 换房 · Enter 发送 · Shift+Enter 换行 · PgUp/PgDn 翻页 · Ctrl+End 最新 · Ctrl+C 退出")
 	notice := warning.Render(ansi.Truncate(model.notice, width, "…"))
 	return strings.Join([]string{ansi.Truncate(header, model.width, "…"), body, model.input.View(), notice, ansi.Truncate(footer, model.width, "…")}, "\n")
 }

@@ -14,8 +14,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"xchat/internal/securestore"
 	"xchat/internal/server"
-	"xchat/internal/store"
 )
 
 type terminalCapture struct {
@@ -49,17 +49,21 @@ func TestWindowsExecutableInPseudoTerminal(t *testing.T) {
 	if executable == "" {
 		t.Skip("set XCHAT_EXE to test the built Windows executable")
 	}
-	for _, size := range []windows.Coord{{X: 100, Y: 30}, {X: 40, Y: 18}} {
+	for _, size := range []windows.Coord{{X: 100, Y: 30}, {X: 60, Y: 20}, {X: 40, Y: 18}} {
 		t.Run(fmt.Sprintf("%dx%d", size.X, size.Y), func(t *testing.T) { testWindowsExecutableInPseudoTerminal(t, executable, size) })
 	}
 }
 func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size windows.Coord) {
-	repository, err := store.Open(filepath.Join(t.TempDir(), "chat.db"))
+	database, err := securestore.Open(filepath.Join(t.TempDir(), "rooms.db"), bytes.Repeat([]byte{4}, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer repository.Close()
-	service := server.New(repository, "test-access-key")
+	defer database.Close()
+	repository, err := database.Room("test-access-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := server.NewRooms(database)
 	defer service.Close()
 	httpServer := httptest.NewServer(service.Handler())
 	defer httpServer.Close()
@@ -108,6 +112,26 @@ func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size
 	defer windows.CloseHandle(process.Thread)
 	defer windows.TerminateProcess(process.Process, 1)
 	eventually(t, "login screen not rendered", func() bool { return capture.contains("XCHAT") })
+	time.Sleep(650 * time.Millisecond)
+	if err = windows.ResizePseudoConsole(pseudo, windows.Coord{X: 24, Y: 10}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if err = windows.ResizePseudoConsole(pseudo, size); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	screen := consoleScreen(t, process.ProcessId)
+	t.Log("visible login screen checked after resize and blinking")
+	labels := 0
+	for _, line := range strings.Split(screen, "\n") {
+		if strings.Contains(line, "房间口令") && !strings.Contains(line, "输入") {
+			labels++
+		}
+	}
+	if labels != 1 {
+		t.Fatalf("expected one visible room label, got %d", labels)
+	}
 	if _, err = io.WriteString(input, "终端验收\r"); err != nil {
 		t.Fatal(err)
 	}
@@ -164,6 +188,39 @@ func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size
 	if err != nil || page.Messages[2].Body != "paste one\npaste two" {
 		t.Fatalf("paste flattened: %+v %v", page, err)
 	}
+	if _, err = io.WriteString(input, "\x1bOQ"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "F2 did not open switch dialog", func() bool { return capture.contains("切换聊天室") })
+	capture.mu.Lock()
+	beforeCancel := capture.buffer.Len()
+	capture.mu.Unlock()
+	if _, err = io.WriteString(input, "\x1b"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "Escape did not cancel switch dialog", func() bool {
+		capture.mu.Lock()
+		defer capture.mu.Unlock()
+		return strings.Contains(capture.buffer.String()[beforeCancel:], "XCHAT")
+	})
+	if _, err = io.WriteString(input, "\x1bOQswitch-target\r"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "client did not switch rooms", func() bool { return capture.contains("已切换聊天室") })
+	target, err := database.Room("switch-target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = io.WriteString(input, "新房间验收\r"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "new room message not saved", func() bool { latest, err := target.LatestID(); return err == nil && latest == 4 })
+	if latest, err := repository.LatestID(); err != nil || latest != 3 {
+		t.Fatal("new room message leaked to old room")
+	}
+	if capture.contains("switch-target") {
+		t.Fatal("target passphrase leaked into terminal output")
+	}
 	if err = windows.ResizePseudoConsole(pseudo, windows.Coord{X: 40, Y: 18}); err != nil {
 		t.Fatal(err)
 	}
@@ -178,5 +235,5 @@ func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size
 	if err = windows.GetExitCodeProcess(process.Process, &exitCode); err != nil || exitCode != 0 {
 		t.Fatalf("client exit: %d %v", exitCode, err)
 	}
-	t.Log("packaged executable rendered, joined, sent Chinese text, resized, paged and exited in Windows ConPTY")
+	t.Log("packaged executable rendered, joined, sent multiline text, cancelled and switched rooms, resized, paged and exited in Windows ConPTY")
 }

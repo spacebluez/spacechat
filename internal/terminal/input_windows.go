@@ -15,6 +15,9 @@ func keyMessage(event coninput.KeyEventRecord) tea.KeyMsg {
 	shift := event.ControlKeyState.Contains(coninput.SHIFT_PRESSED)
 	control := event.ControlKeyState.Contains(coninput.LEFT_CTRL_PRESSED | coninput.RIGHT_CTRL_PRESSED)
 	alt := event.ControlKeyState.Contains(coninput.LEFT_ALT_PRESSED | coninput.RIGHT_ALT_PRESSED)
+	if event.VirtualKeyCode == coninput.VK_F2 && !shift && !control && !alt {
+		return tea.KeyMsg{Type: tea.KeyF2}
+	}
 	if event.Char == '\n' {
 		return tea.KeyMsg{Type: tea.KeyCtrlJ}
 	}
@@ -50,9 +53,10 @@ func keyMessage(event coninput.KeyEventRecord) tea.KeyMsg {
 }
 
 type pasteDecoder struct {
-	prefix  string
-	content []rune
-	active  bool
+	prefix   string
+	prefixAt time.Time
+	content  []rune
+	active   bool
 }
 
 func (decoder *pasteDecoder) feed(event coninput.KeyEventRecord, send func(tea.Msg)) {
@@ -78,6 +82,7 @@ func (decoder *pasteDecoder) feed(event coninput.KeyEventRecord, send func(tea.M
 	}
 	if decoder.prefix != "" || character == '\x1b' {
 		decoder.prefix += string(character)
+		decoder.prefixAt = time.Now()
 		if decoder.prefix == "\x1b[200~" {
 			decoder.prefix = ""
 			decoder.active = true
@@ -100,7 +105,27 @@ func (decoder *pasteDecoder) feed(event coninput.KeyEventRecord, send func(tea.M
 	send(message)
 }
 
+func (decoder *pasteDecoder) flushPrefix(now time.Time, send func(tea.Msg)) {
+	if decoder.prefix == "" || now.Sub(decoder.prefixAt) < 50*time.Millisecond {
+		return
+	}
+	prefix := decoder.prefix
+	decoder.prefix = ""
+	send(tea.KeyMsg{Type: tea.KeyEsc})
+	for _, character := range prefix[1:] {
+		send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{character}})
+	}
+}
+
 func Run(model tea.Model) error {
+	output := windows.Handle(os.Stdout.Fd())
+	var originalOutput uint32
+	if err := windows.GetConsoleMode(output, &originalOutput); err == nil {
+		if err := windows.SetConsoleMode(output, originalOutput|windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING|windows.DISABLE_NEWLINE_AUTO_RETURN); err != nil {
+			return err
+		}
+		defer windows.SetConsoleMode(output, originalOutput)
+	}
 	handle := windows.Handle(os.Stdin.Fd())
 	var original uint32
 	if err := windows.GetConsoleMode(handle, &original); err != nil {
@@ -132,6 +157,7 @@ func Run(model tea.Model) error {
 				return
 			}
 			if len(events) == 0 {
+				decoder.flushPrefix(time.Now(), program.Send)
 				time.Sleep(8 * time.Millisecond)
 				continue
 			}

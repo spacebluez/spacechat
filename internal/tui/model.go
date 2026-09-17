@@ -23,6 +23,7 @@ type networkEvent struct {
 	closed bool
 }
 type Model struct {
+	switcher          *roomSwitch
 	address           string
 	name              string
 	nickname          textinput.Model
@@ -69,6 +70,9 @@ func New(address string) *Model {
 }
 func (model *Model) Init() tea.Cmd { return textinput.Blink }
 func (model *Model) Close() {
+	if model.switcher != nil && model.switcher.candidate != nil {
+		model.switcher.candidate.Close()
+	}
 	if model.cancel != nil {
 		model.cancel()
 	}
@@ -84,8 +88,10 @@ func waitEvent(network *client.Client) tea.Cmd {
 }
 func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch value := message.(type) {
+	case roomSwitchPaste:
+		return model, model.applySwitchPaste(value)
 	case pasteTextMsg:
-		if !model.joined {
+		if !model.joined || model.switcher != nil || (value.source != nil && value.source != model.network) {
 			return model, nil
 		}
 		if value.err != nil {
@@ -93,6 +99,11 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		return model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(normalizeNewlines(value.text)), Paste: true})
+	case roomSwitchTimeout:
+		if model.switcher != nil && model.switcher.candidate != nil && model.switcher.candidate.network == value.source {
+			return model, model.failRoomSwitch("进入目标房间超时；原房间和草稿保留")
+		}
+		return model, nil
 	case tea.WindowSizeMsg:
 		model.width = value.Width
 		model.height = value.Height
@@ -100,6 +111,9 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.refresh(false)
 		return model, nil
 	case networkEvent:
+		if model.switcher != nil && model.switcher.candidate != nil && value.source == model.switcher.candidate.network {
+			return model, model.candidateEvent(value)
+		}
 		if value.source != nil && value.source != model.network {
 			return model, nil
 		}
@@ -107,7 +121,7 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		model.applyEvent(value.event)
-		return model, waitEvent(model.network)
+		return model, tea.Batch(waitEvent(model.network), model.continueRoomSwitch(value.event))
 	case tea.KeyMsg:
 		if value.Paste {
 			value.Runes = []rune(normalizeNewlines(string(value.Runes)))
@@ -116,6 +130,12 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if value.String() == "ctrl+c" {
 			model.Close()
 			return model, tea.Quit
+		}
+		if model.switcher != nil {
+			return model, model.updateRoomSwitch(message)
+		}
+		if model.joined && value.String() == "f2" {
+			return model, model.openRoomSwitch()
 		}
 		if !model.joined {
 			if value.String() == "tab" || value.String() == "shift+tab" {
@@ -165,7 +185,7 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch value.String() {
 		case "ctrl+v", "shift+insert":
-			return model, readClipboard
+			return model, readRoomClipboard(model.network)
 		case "enter":
 			if !model.connected {
 				model.notice = "连接恢复后才能发送，草稿已保留"
@@ -202,10 +222,16 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 	case tea.MouseMsg:
+		if model.switcher != nil {
+			return model, nil
+		}
 		var command tea.Cmd
 		model.viewport, command = model.viewport.Update(message)
 		model.loadOlder()
 		return model, command
+	}
+	if model.switcher != nil {
+		return model, model.updateRoomSwitch(message)
 	}
 	var command tea.Cmd
 	if model.joined {
@@ -371,10 +397,14 @@ func (model *Model) resize() {
 	model.input.SetHeight(inputHeight)
 	model.viewport.Height = max(1, model.height-7-inputHeight)
 	model.input.SetWidth(max(5, model.width-4))
-	loginWidth := model.width
+	loginWidth := max(1, model.width-4)
 	if !model.compactLogin() {
 		loginWidth -= 8
 	}
 	model.nickname.Width = max(1, min(36, loginWidth-3))
 	model.accessKey.Width = model.nickname.Width
+	if model.switcher != nil {
+		model.switcher.key.Width = model.nickname.Width
+		model.switcher.nickname.Width = model.nickname.Width
+	}
 }

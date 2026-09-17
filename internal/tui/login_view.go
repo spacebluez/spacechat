@@ -32,7 +32,7 @@ func renderTextInput(field textinput.Model) string {
 }
 func (model *Model) compactLogin() bool { return model.width < 60 || model.height < 20 }
 func (model *Model) loginView() string {
-	width := model.width
+	width := max(1, model.width-4)
 	if !model.compactLogin() {
 		width -= 8
 	}
@@ -42,6 +42,7 @@ func (model *Model) loginView() string {
 		fit(muted.Render(model.address)),
 		"昵称",
 		fit(renderTextInput(model.nickname)),
+		"",
 		"房间口令",
 		fit(renderTextInput(model.accessKey)),
 		fit(warning.Render(model.notice)),
@@ -52,5 +53,5 @@ func (model *Model) loginView() string {
 	if model.compactLogin() {
 		return content
 	}
-	return lipgloss.NewStyle().Padding(1, 1).Render(panel.Width(model.width-4).Padding(1, 1).Render(content))
+	return lipgloss.NewStyle().Padding(1, 1).Render(panel.Width(model.width-8).Padding(1, 1).Render(content))
 }
