@@ -24,7 +24,7 @@ try {
     Copy-Item deploy/rooms/*, deploy/clear_history.py, README.md -Destination dist/rooms-server -Force
     Compress-Archive -Path dist/rooms-client/* -DestinationPath "dist/xchat-rooms-windows-amd64-$Version.zip" -Force
     Compress-Archive -Path dist/rooms-server/* -DestinationPath "dist/xchat-rooms-server-linux-amd64-$Version.zip" -Force
-    $sourcePaths = @("cmd", "internal", "scripts", "deploy", "docs", "go.mod", "go.sum", "README.md", ".gitignore")
+    $sourcePaths = @("cmd", "internal", "scripts", "deploy", "docs", "go.mod", "go.sum", "README.md", ".gitignore", ".gitattributes")
     Compress-Archive -Path $sourcePaths -DestinationPath "dist/xchat-rooms-source-$Version.zip" -Force
     Write-Output "Isolated rooms artifacts built in $root\dist"
 }

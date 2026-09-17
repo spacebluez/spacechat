@@ -39,4 +39,4 @@ Files: deploy/rooms, deploy/clear_history.py, scripts/build.ps1, README.md.
 - [x] Implement isolated installer, key generation, timer, Python cleanup and versioned packaging.
 - [x] Run full tests, vet, Linux race and shell/Python validation.
 - [x] Record old process identity, deploy new instance only, verify new-room flows and old process identity unchanged.
-- [ ] Commit/push new branch via relay and provide client/source artifacts with sanitized verification record.
+- [x] Commit/push new branch via relay and provide client/source artifacts with sanitized verification record.
