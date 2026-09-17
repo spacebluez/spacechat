@@ -134,6 +134,36 @@ func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size
 	if page.Messages[0].Nickname != "终端验收" || page.Messages[0].Body != "Windows 中文终端验收" {
 		t.Fatalf("text changed: %+v", page)
 	}
+	if _, err = io.WriteString(input, "first line\x1b[13;28;13;1;16;1_second line"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if latest, _ := repository.LatestID(); latest != 1 {
+		t.Fatal("Shift+Enter sent instead of newline")
+	}
+	if _, err = io.WriteString(input, "\r"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "multiline message not saved", func() bool { latest, _ := repository.LatestID(); return latest == 2 })
+	page, err = repository.Page(0, 0, 2)
+	if err != nil || page.Messages[1].Body != "first line\nsecond line" {
+		t.Fatalf("native Shift+Enter failed: %+v %v", page, err)
+	}
+	if _, err = io.WriteString(input, "\x1b[200~paste one\npaste two\x1b[201~"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if latest, _ := repository.LatestID(); latest != 2 {
+		t.Fatal("paste sent automatically")
+	}
+	if _, err = io.WriteString(input, "\r"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "paste not saved", func() bool { latest, _ := repository.LatestID(); return latest == 3 })
+	page, err = repository.Page(0, 0, 3)
+	if err != nil || page.Messages[2].Body != "paste one\npaste two" {
+		t.Fatalf("paste flattened: %+v %v", page, err)
+	}
 	if err = windows.ResizePseudoConsole(pseudo, windows.Coord{X: 40, Y: 18}); err != nil {
 		t.Fatal(err)
 	}

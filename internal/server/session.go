@@ -15,6 +15,8 @@ type session struct {
 	cancel     context.CancelFunc
 	outgoing   chan protocol.Frame
 	name       string
+	room       string
+	repository Repository
 	syncing    bool
 	through    int64
 	cursor     int64

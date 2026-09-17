@@ -87,7 +87,7 @@ func ValidateBody(body string) error {
 	if strings.TrimSpace(body) == "" || utf8.RuneCountInString(body) > 2000 {
 		return errors.New("消息须为 1–2000 个字符且不能全为空白")
 	}
-	return validateText(body)
+	return validateText(strings.ReplaceAll(body, "\n", ""))
 }
 
 func validateText(text string) error {

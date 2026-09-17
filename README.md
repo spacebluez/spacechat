@@ -1,166 +1,134 @@
-# XChat 内网命令行聊天室
+# XChat 多房间内网聊天（0.3.0）
 
-Go 服务端 + Windows TUI 客户端。输入昵称和共享密钥进入一个公共聊天室，消息保存在服务端 SQLite 数据库。**完整源码、测试、构建和部署脚本均在此仓库**。
+Go 服务端 + Windows x64 TUI 客户端，完整源码、测试、构建及部署脚本均在仓库。
+
+本分支基于既有功能开发：**任意房间口令建房、加密聊天记录、多行编辑、独立部署**。旧版单房间服务继续运行，不升级、不迁移、不清空旧版数据库。
 
 ## 使用客户端
 
-将 dist/xchat-windows-amd64.zip 解压到任意目录，在 Windows Terminal 或 PowerShell 中执行：
+解压 dist/xchat-rooms-windows-amd64-0.3.0.zip，运行 xchat-rooms.exe。源码默认连接本机测试地址；实际内网地址通过管理员私下提供的构建包或 --server 指定。本文 chat.example.invalid 是占位地址。
 
-    .\xchat.exe
+    .\xchat-rooms.exe --server ws://chat.example.invalid:18081/ws
+    .\xchat-rooms.exe --version
 
-源码默认连接本机测试地址 ws://127.0.0.1:18080/ws；实际使用时通过 --server 或构建参数 -Server 指定管理员提供的地址。下文 chat.example.invalid 仅为占位示例，不是真实服务地址。输入昵称按 Enter，再输入密钥按 Enter。密钥由管理员单独提供，输入时显示为星号；Tab 可切换输入项。客户端为 Windows x64 程序，不需要安装 Go；需网络可达公司内网服务器。建议用支持中文的终端字体。
-
-    .\xchat.exe --server ws://chat.example.invalid:18080/ws
-    .\xchat.exe --version
+输入昵称按 Enter，再输入房间口令按 Enter。相同口令进入相同房间，不存在则自动创建。无需账号、无需管理员预建房间。口令精确匹配且区分大小写与空格，1–256 个字符，不允许全空白及控制字符。不同口令就是不同房间，输错口令可能进入一个新房间。
 
 | 操作 | 快捷键 |
 | --- | --- |
-| 切换昵称和密钥 | Tab / Shift+Tab |
-| 继续 / 进入聊天室 / 发送单行消息 | Enter |
-| 浏览消息 / 到顶部加载更早消息 | PgUp、PgDn |
-| 返回最新消息 | Ctrl+End |
-| 跳到已加载历史顶部 | Ctrl+Home |
+| 昵称 / 口令切换 | Tab / Shift+Tab |
+| 继续 / 进入 / 发送消息 | Enter |
+| 换行 | Shift+Enter（Windows 原生客户端）；Ctrl+J 兼容换行 |
+| 粘贴多行草稿 | 客户端 Ctrl+V（推荐），Shift+Insert |
+| 编辑草稿 | 方向键、Home / End |
+| 浏览历史 | PgUp / PgDn |
+| 回到最新 / 已加载历史顶部 | Ctrl+End / Ctrl+Home |
 | 退出 | Ctrl+C |
 
-可用终端粘贴快捷键输入中文。首次显示最近 100 条，更早记录逐页加载。窗口较窄时隐藏在线列表。当前在线昵称不可重复，离线后昵称可复用。正文最多 2,000 个 Unicode 字符，昵称最多 20 个，不接受控制字符。
+正文最多 2000 个 Unicode 字符（包含换行），支持 LF 多行；昵称最多 20 字符且不能换行。同一房间内在线昵称不能重复，不同房间可以同名。口令、历史消息、在线名单不向其他房间公开。口令本身不作为房间名称显示。
 
-断线自动重连，保留草稿并补齐离线消息。连接断开时未确认的消息显示“结果未知”，**不会自动重发**；请核对历史再决定是否手动发送。服务端先保存再广播，保存失败会提示。客户端退出后不保存本地聊天记录。
+**多行粘贴请优先使用客户端 Ctrl+V**，一次读入系统剪贴板，不发送草稿。某些终端的右键/外层粘贴会把 CR 当作真实 Enter；不要用这类粘贴方式输入多行。Windows 原生控制台保留 Shift 修饰键；其他终端若无法区分 Shift+Enter，可用 Ctrl+J。
 
-## 从源码构建
+断线自动重连，按房间补齐消息、保留草稿。发送未确认时显示结果未知，不自动重发以避免重复。首次显示最近 100 条，更早消息分页加载。退出客户端再输入另一口令即可切换房间。
 
-要求 Go 1.26 或更新版本。依赖版本锁定在 go.mod/go.sum。
+## 存储加密与安全边界
 
-    go mod download
+- 昵称及正文在写入 SQLite 前使用 AES-256-GCM 认证加密；随机 nonce，认证数据绑定房间标识、消息 ID 与时间。数据库及 WAL 不写明文昵称和正文。
+- 口令不保存到数据库，用独立派生密钥的 HMAC-SHA256 得到房间标识。弱口令仍可能被在线猜中，请使用足够长的随机口令并私下分享。
+- 主密钥是独立随机的 32 字节，以 base64 保存在 /etc/xchat-rooms/encryption.key，root:xchat-rooms 0640。安装时仅在没有数据库和密钥的首次部署生成，绝不把密钥提交 Git。
+- 启动会校验密钥，错误密钥、损坏密文或旧明文库均拒绝使用。不支持本期密钥轮换或旧库迁移。**丢失密钥将无法恢复聊天内容；不要删除或重新生成现有密钥。**
+- 消息数量、时间戳、匿名房间标识和数据库结构不是加密对象。此方案不是整库加密或端到端加密；服务器可解密内容。
+- ws 链路仍是明文，只适用于可信内网；如需传输加密，部署公司 TLS 反向代理并使用 wss，后端只允许代理访问。
+- 无个人身份验证、口令找回、私聊、文件传输、分布式或自动更新。昵称不是身份凭证。
+
+## 构建
+
+需要 Go 1.26 或更高版本和 PowerShell。默认构建不包含真实服务地址：
+
     go test ./...
     go vet ./...
-    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
+    powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 
-指定默认服务器：
+私有部署包可以在本地用 -Server 指定实际地址；不要把实际地址、包或密钥提交到公共仓库。
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Server ws://chat.example.invalid:18080/ws -Version 0.2.1
+    powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Server ws://chat.example.invalid:18081/ws
 
-产物：
-- dist/xchat.exe：Windows amd64 客户端。
-- dist/xchat-windows-amd64.zip：客户端及说明书。
-- dist/xchat-server-linux-amd64：Linux amd64 服务端，无 CGO 运行时依赖。
-- dist/xchat-source.zip：完整源码、测试、依赖清单、文档和脚本，不包含聊天数据库。
+输出位于 dist：版本化 Windows exe / zip、Linux 服务端 zip、完整源码 zip。新构建不会覆盖旧版 xchat.exe 或旧服务器包。
 
-Linux 也可以直接构建：
+## 独立部署
 
-    CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o dist/xchat.exe ./cmd/xchat
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o dist/xchat-server-linux-amd64 ./cmd/xchat-server
+仅使用 dist/rooms-server/install.sh，不运行旧版安装流程。deploy/install.sh 在本分支主动拒绝旧版部署。新包解压到独立目录后运行：
 
-## 本地开发
+    sh install.sh '<SERVER_IP>:18081' '<CLIENT_CIDR>,127.0.0.0/8'
 
-先在本机创建 access.key 文件，仅包含测试用共享密钥；不要提交密钥文件（*.key 已忽略）。Linux 上将文件权限设为 0600。
+先确认所选端口空闲，使用可信内网绑定地址与来源白名单。安装依赖 Linux systemd、Python 3.7+、标准账户/文件管理命令。
 
-    go run ./cmd/xchat-server --listen 127.0.0.1:18080 --db data/chat.db --key-file access.key
-    go run ./cmd/xchat --server ws://127.0.0.1:18080/ws
+| 项目 | 新实例 |
+| --- | --- |
+| systemd 服务 | xchat-rooms.service |
+| 程序 | /opt/xchat-rooms/xchat-server |
+| 配置及加密密钥 | /etc/xchat-rooms/ |
+| 数据库 | /var/lib/xchat-rooms/rooms.db |
+| 私有管理 socket | /run/xchat-rooms/admin.sock |
+| 定时器 | xchat-rooms-cleanup.timer |
+| 示例端口 | 18081 |
 
-服务器参数：--listen、--db、--allow-cidr、--key-file，以及可选 --admin-socket。密钥未配置、为空或在 Linux 上允许其他用户读取时，服务拒绝启动。默认只监听 127.0.0.1:18080；默认来源白名单为回环地址和 RFC1918 私网。来源校验使用实际 TCP 对端地址，忽略 X-Forwarded-For。
+所有路径、账户及单元均独立于旧服务。安装脚本只启用/重启新实例及其定时器，绝不操作旧服务。配置已存在时保留；修改新实例配置后只重启 xchat-rooms。
 
-## 部署到 Linux 服务器
+    systemctl status xchat-rooms --no-pager
+    journalctl -u xchat-rooms -n 50 --no-pager
+    curl http://127.0.0.1:18081/healthz
 
-适用于支持 systemd 的 Linux amd64 服务器。部署前核验实际平台和端口，将下列文件上传到同一临时目录：
+健康检查请使用新服务实际监听地址。不会自动修改防火墙；需要时仅允许指定公司网段访问新端口，不改变原端口规则。
 
-- dist/xchat-server-linux-amd64
-- deploy/xchat.service
-- deploy/install.sh
-- deploy/cleanup.sh
-- deploy/xchat-cleanup.service
-- deploy/xchat-cleanup.timer
+## 每日与手动清理
 
-首次安装前，以 root 创建 /etc/xchat 目录，使用编辑器写入 /etc/xchat/access.key 并设置 0600 权限；不要把密钥放在命令参数或终端日志中。升级安装保留已有文件。安装脚本最终设置 root:xchat 所有权及 0640 权限。
+每天北京时间 **00:00** 事务性删除新实例的**全部房间及全部聊天记录**，不是只删当天活跃房间。通知所有在线客户端清空历史，保留草稿及连接；继续发送时按原房间标识重新建房。消息 ID 不重复使用，同步代次变化防止旧历史重新出现。
 
-以 root 执行：
+定时器调用与手动执行相同的 Python 脚本，通过新实例私有 socket 清理。公开 HTTP/WebSocket 不提供管理接口。
 
-    sh install.sh '<SERVER_IP>:18080' '<CLIENT_CIDR>,127.0.0.0/8'
+    sudo python3 /opt/xchat-rooms/clear_history.py
+    sudo python3 /opt/xchat-rooms/clear_history.py --yes
 
-脚本创建 xchat 系统用户，将程序放在 /opt/xchat/xchat-server，数据库放在 /var/lib/xchat/chat.db，配置放在 /etc/xchat/server.env，服务注册为 xchat.service。开启开机启动并启动服务，**不重启主机、不修改系统防火墙、不覆盖历史数据库**。升级时保留前一个程序为 xchat-server.previous，已有 server.env 和 access.key 不会被覆盖。升级到 0.2.0 后旧客户端无法进入，需同时更新客户端。
+仓库脚本同样可手动执行：
 
-    systemctl status xchat --no-pager
-    systemctl is-enabled xchat
-    journalctl -u xchat -n 100 --no-pager
-    curl http://chat.example.invalid:18080/healthz
+    sudo python3 deploy/clear_history.py
 
-监听地址和客户端来源网段由部署者配置。请将 <SERVER_IP> 和 <CLIENT_CIDR> 替换为实际配置，实际值不要提交到仓库。如果公司客户端位于其他内网网段，管理员需编辑 /etc/xchat/server.env 的 XCHAT_ALLOW_CIDR，再重启服务。若启用了主机或网络防火墙，应按公司策略仅向所需内网网段开放 TCP 18080；不要直接全网开放。
+默认目标为 /run/xchat-rooms/admin.sock。高级用法允许 --socket 或 XCHAT_ROOMS_ADMIN_SOCKET 指定测试实例路径；**不要指向旧实例**。交互要求输入 CLEAR；失败不自动重试。
 
-    systemctl restart xchat
-    systemctl stop xchat
+    systemctl list-timers xchat-rooms-cleanup.timer --no-pager
+    journalctl -u xchat-rooms-cleanup.service -n 50 --no-pager
 
-健康检查只返回服务与数据库是否可用，不返回聊天内容。不要将已启用开机启动误认为已实际重启主机验证。
-
-## 密钥配置
-
-密钥保存在 /etc/xchat/access.key，不包含在客户端或 GitHub 仓库中。用管理员编辑器更改文件后，保持 root:xchat、0640 权限并重启 xchat 服务。现有客户端在重连时需输入新的密钥；客户端只在本次进程内保存密钥，不写本地配置。不要直接把密钥作为服务端命令行参数。
-
-## 每日清理
-
-默认每天 **北京时间 00:00** 运行 xchat-cleanup.timer，调用 /opt/xchat/cleanup.sh 清空全部聊天记录。清理在 SQLite 事务中执行，不删除数据库文件、不重启服务；在线客户端收到清理事件后刷新历史，草稿保留，仍可继续发送。
-
-    systemctl status xchat-cleanup.timer --no-pager
-    systemctl list-timers xchat-cleanup.timer --no-pager
-    journalctl -u xchat-cleanup.service -n 50 --no-pager
-
-清理时间通过 systemd timer drop-in 配置。执行 systemctl edit xchat-cleanup.timer，例如改为每天北京时间 02:30：
+时间可配置：systemctl edit xchat-rooms-cleanup.timer，写入下面内容（例：02:30）：
 
     [Timer]
     OnCalendar=
     OnCalendar=*-*-* 02:30:00 Asia/Shanghai
 
-第一条空 OnCalendar 必须保留，用于清除原计划。保存后执行：
+然后 systemctl daemon-reload 并 systemctl restart xchat-rooms-cleanup.timer。Persistent=false：停机错过的清理不补跑。关闭定时清理用 systemctl disable --now xchat-rooms-cleanup.timer。
 
-    systemctl daemon-reload
-    systemctl restart xchat-cleanup.timer
-    systemctl list-timers xchat-cleanup.timer --no-pager
+清理属于逻辑删除，不承诺物理擦除或缩小文件；备份不自动清理，需另行管理。首次交付前的验证仅清理新实例测试数据。
 
-timer 使用 Persistent=false，停机期间错过的清理不会在启动时补跑，以免意外清空新消息；下一次计划时间照常执行。关闭定时清理用 systemctl disable --now xchat-cleanup.timer。
+## 备份与回退
 
-**手工清空不可恢复，请先确认并备份**：管理员可以运行 systemctl start xchat-cleanup.service 或 /opt/xchat/cleanup.sh。脚本通过仅本机可访问、权限 0600 的 /run/xchat/admin.sock 操作，不在公网 HTTP 或聊天协议上暴露清理入口。返回非 2xx 时脚本失败，失败原因写入日志。
+加密数据库和主密钥必须分别安全备份，主密钥丢失无法恢复。运行中不要单独复制 rooms.db，SQLite WAL 可能含未合并记录。可停**新实例 xchat-rooms**后成套备份其数据目录，备份结束只启动新实例；不得为此操作旧服务。
 
-清理删除逻辑聊天记录，不承诺物理介质安全擦除或立即缩小 SQLite 文件；历史备份也不会自动删除，需管理员管理。
+新功能回退可以停止新实例及其定时器，让用户继续使用旧客户端；旧服务和旧数据库一直保持独立。不要把新库交给旧版程序打开。
 
-## 备份、恢复与升级
+## 测试与源码
 
-聊天历史每日零点自动清空；如需保留，请在清理前备份。仍需关注 /var/lib/xchat 的磁盘占用。默认采用停服备份：
+    go test ./... -count=1
+    go vet ./...
+    python3 -m unittest discover -s deploy -p 'test_*.py'
 
-    systemctl stop xchat
-    tar -C /var/lib -czf /安全备份目录/xchat-backup.tar.gz xchat
-    systemctl start xchat
+Linux 可运行 go test -race ./...。XCHAT_EXE 指向新 exe 时启用 Windows ConPTY 测试。部署冒烟需显式设置 XCHAT_SMOKE_ADDRESS、XCHAT_SMOKE_KEY、XCHAT_SMOKE_MARKER，只能指向获准测试的新服务。
 
-将示例备份路径替换为真实的受限目录，备份包含敏感聊天内容。不要在服务运行时只复制 chat.db，因为 WAL 可能包含尚未检查点合并的数据。
+- internal/securestore：加密 SQLite、房间索引、密钥校验。
+- internal/server：房间隔离、消息同步、全量清理。
+- internal/tui、internal/terminal：多行编辑、Windows 原生按键。
+- internal/client、internal/protocol：通信协议、重连与正文校验。
+- deploy/rooms、deploy/clear_history.py：独立部署、定时与手动清理。
+- internal/store、internal/accesskey 与旧部署单元用于旧版回归参考，不能用于新实例的明文存储部署。
 
-恢复时先停服，保留当前数据目录作为回退，将完整备份恢复到 /var/lib/xchat，设置 xchat:xchat 所有权，再启动服务。必须成套恢复数据库及备份中的相关文件，不要把旧 WAL 与新数据库混用。恢复到更早快照后应让客户端退出重进；删除整个数据库重建会产生新实例 ID，客户端自动清空旧游标。
+当前设计与实施计划见 docs/superpowers 下 2026-09-17 文档；先前验收文档是历史版本记录，不是本分支部署指南。
 
-升级使用同一安装脚本，数据库与配置保留。若需回退程序，停止服务后将 /opt/xchat/xchat-server.previous 复制回 xchat-server，再启动；涉及未来数据库 schema 变更时应先查升级说明，不能盲目回退。
-
-## 故障排查与安全边界
-
-- 无法连接：确认内网/VPN、IP 与端口、服务状态、应用来源白名单以及网络防火墙。
-- 昵称占用：换名或等待旧连接心跳超时释放；默认心跳每 20 秒，超时检测最多约 60 秒。
-- 保存失败：检查磁盘空间、数据库目录权限与服务日志；未保存消息不会广播。
-- Windows 中文显示异常：使用 UTF-8 的现代终端及中文字体；不同输入法仍需在实际电脑上验收。
-- 使用共享密钥控制进入权限，但不提供个人账号或身份验证；持有密钥且来自允许网段的连接者可读取当前历史，昵称可被他人复用。
-- 默认 ws 是明文，密钥与聊天内容都可能被链路窃听，只用于可信内网。需要加密时，应由公司 TLS 入口代理提供 wss，并保持后端端口仅代理可达；客户端已支持 wss 地址。
-- 不做私聊、文件、撤回、多房间、分布式或自动更新。客户端长时间加载大量历史会增加内存使用。
-
-## 验收记录
-
-当前版本验收见 docs/verification-access-key-cleanup.md；初版记录见 docs/verification-2026-09-16.md。可选真实部署测试默认跳过，显式启用后会写入一条标记消息；Windows 伪终端测试使用本机临时数据库，不影响公共历史。
-
-## 源码结构
-
-    cmd/xchat/           Windows TUI 入口
-    cmd/xchat-server/    服务端入口
-    internal/accesskey/ 密钥文件读取与校验
-    internal/admin/     受限 Unix socket 清理接口
-    internal/protocol/  JSON 协议与文本校验
-    internal/store/     SQLite 持久化和分页
-    internal/server/    聊天会话、广播、同步、网络白名单
-    internal/client/    连接、重连、历史同步、发送确认
-    internal/tui/       TUI 交互和布局
-    deploy/             systemd 单元与安装脚本
-    scripts/            构建和打包
-    docs/superpowers/   设计及实施计划
-
-测试覆盖中文与控制字符、205 条游标分页和重开持久化、重名加入、广播与写入失败、同步期间实时消息衔接、服务重启自动补齐、最大中文历史页、窄屏布局及 TUI 启停。Linux 环境具备 C 编译器时可运行 go test -race ./...。
+本版本详细验收见 docs/verification-rooms-2026-09-17.md。

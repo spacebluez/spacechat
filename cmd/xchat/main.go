@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"xchat/internal/client"
+	"xchat/internal/terminal"
 	"xchat/internal/tui"
 )
 
-var defaultServer = "ws://127.0.0.1:18080/ws"
+var defaultServer = "ws://127.0.0.1:18081/ws"
 var version = "dev"
 
 func main() {
@@ -27,8 +27,7 @@ func main() {
 	}
 	model := tui.New(*address)
 	defer model.Close()
-	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
-	if _, err := program.Run(); err != nil {
+	if err := terminal.Run(model); err != nil {
 		fmt.Fprintln(os.Stderr, "xchat:", err)
 		os.Exit(1)
 	}

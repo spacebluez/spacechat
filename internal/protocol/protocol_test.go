@@ -16,12 +16,12 @@ func TestValidation(t *testing.T) {
 			t.Fatalf("accepted name %q", name)
 		}
 	}
-	for _, body := range []string{"你好世界", strings.Repeat("中", 2000)} {
+	for _, body := range []string{"a\nb", "你好世界", strings.Repeat("中", 2000)} {
 		if err := ValidateBody(body); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, body := range []string{"", "   ", "a\nb", "\x1b[31m", strings.Repeat("中", 2001)} {
+	for _, body := range []string{"", "   ", "a\rb", "a\tb", "\x1b[31m", strings.Repeat("中", 2001)} {
 		if ValidateBody(body) == nil {
 			t.Fatalf("accepted body %q", body)
 		}

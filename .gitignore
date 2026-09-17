@@ -4,3 +4,6 @@
 *.db-wal
 /.cache/
 *.key
+
+__pycache__/
+*.pyc
