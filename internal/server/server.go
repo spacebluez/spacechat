@@ -14,7 +14,9 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"xchat/internal/accesskey"
 	"xchat/internal/protocol"
+	"xchat/internal/securestore"
 )
 
 type Repository interface {
@@ -28,6 +30,7 @@ type Repository interface {
 type Server struct {
 	mu             sync.Mutex
 	repository     Repository
+	rooms          *securestore.Store
 	sessions       map[string]*session
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -49,7 +52,7 @@ func (service *Server) Handler() http.Handler {
 			http.Error(writer, "shutting down", http.StatusServiceUnavailable)
 			return
 		}
-		if _, err := service.repository.LatestID(); err != nil {
+		if err := service.health(); err != nil {
 			http.Error(writer, "storage unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -111,8 +114,13 @@ func (service *Server) serveConnection(writer http.ResponseWriter, request *http
 }
 func (service *Server) join(client *session, join protocol.Join) protocol.Failure {
 	provided := sha256.Sum256([]byte(join.AccessKey))
-	if !service.authConfigured || subtle.ConstantTimeCompare(service.accessKeyHash[:], provided[:]) != 1 {
+	if service.rooms == nil && (!service.authConfigured || subtle.ConstantTimeCompare(service.accessKeyHash[:], provided[:]) != 1) {
 		return protocol.Failure{Code: "unauthorized", Message: "密钥错误，请重新输入"}
+	}
+	if service.rooms != nil {
+		if err := accesskey.Validate(join.AccessKey); err != nil {
+			return protocol.Failure{Code: "unauthorized", Message: err.Error()}
+		}
 	}
 	join.Nickname = strings.TrimSpace(join.Nickname)
 	if err := protocol.ValidateName(join.Nickname); err != nil {
@@ -123,31 +131,41 @@ func (service *Server) join(client *session, join protocol.Join) protocol.Failur
 	if service.closed {
 		return protocol.Failure{Code: "unavailable", Message: "服务正在关闭"}
 	}
-	if _, exists := service.sessions[join.Nickname]; exists {
+	client.name = join.Nickname
+	client.repository = service.repository
+	if service.rooms != nil {
+		room, err := service.rooms.Room(join.AccessKey)
+		if err != nil {
+			return protocol.Failure{Code: "storage_error", Message: "无法打开房间"}
+		}
+		client.repository = room
+		client.room = room.ID()
+	}
+	if _, exists := service.sessions[client.sessionKey()]; exists {
 		return protocol.Failure{Code: "name_taken", Message: "昵称已在线，请修改昵称或等待旧连接释放"}
 	}
-	latest, err := service.repository.LatestID()
+	latest, err := client.repository.LatestID()
 	if err != nil {
 		return protocol.Failure{Code: "storage_error", Message: "无法读取历史"}
 	}
-	if join.AfterID < 0 || join.AfterID > latest && join.InstanceID == service.repository.InstanceID() {
+	if join.AfterID < 0 || join.AfterID > latest && join.InstanceID == client.repository.InstanceID() {
 		return protocol.Failure{Code: "invalid_cursor", Message: "同步游标无效"}
 	}
-	resumed := join.InstanceID == service.repository.InstanceID()
+	resumed := join.InstanceID == client.repository.InstanceID()
 	before, after := int64(0), int64(0)
 	if resumed {
 		before = -1
 		after = join.AfterID
 	}
-	page, err := service.repository.Page(before, after, latest)
+	page, err := client.repository.Page(before, after, latest)
 	if err != nil {
 		return protocol.Failure{Code: "storage_error", Message: "无法读取历史"}
 	}
 	client.name = join.Nickname
 	client.through = latest
 	client.syncing = resumed
-	service.sessions[client.name] = client
-	client.enqueue(protocol.Encode("welcome", "", protocol.Welcome{InstanceID: service.repository.InstanceID(), ThroughID: latest, Resumed: resumed, Users: service.users()}))
+	service.sessions[client.sessionKey()] = client
+	client.enqueue(protocol.Encode("welcome", "", protocol.Welcome{InstanceID: client.repository.InstanceID(), ThroughID: latest, Resumed: resumed, Users: service.users(client.room)}))
 	if resumed {
 		client.enqueue(protocol.Encode("sync", "initial", page))
 		client.cursor = join.AfterID
@@ -167,23 +185,31 @@ func (service *Server) leave(client *session) {
 	client.cancel()
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	if service.sessions[client.name] == client {
-		delete(service.sessions, client.name)
+	if service.sessions[client.sessionKey()] == client {
+		delete(service.sessions, client.sessionKey())
 		service.presence()
 	}
 }
-func (service *Server) users() []string {
-	users := make([]string, 0, len(service.sessions))
-	for name := range service.sessions {
-		users = append(users, name)
+func (service *Server) users(room string) []string {
+	users := make([]string, 0)
+	for _, client := range service.sessions {
+		if client.room == room {
+			users = append(users, client.name)
+		}
 	}
 	sort.Strings(users)
 	return users
 }
 func (service *Server) presence() {
-	frame := protocol.Encode("presence", "", protocol.Presence{Users: service.users()})
+	users := make(map[string][]string)
 	for _, client := range service.sessions {
-		client.deliver(frame)
+		users[client.room] = append(users[client.room], client.name)
+	}
+	for room := range users {
+		sort.Strings(users[room])
+	}
+	for _, client := range service.sessions {
+		client.deliver(protocol.Encode("presence", "", protocol.Presence{Users: users[client.room]}))
 	}
 }
 func (service *Server) finishSync(client *session) {
@@ -222,13 +248,16 @@ func (service *Server) handle(client *session, frame protocol.Frame) {
 			fail("invalid_message", err.Error())
 			return
 		}
-		message, err := service.repository.Append(client.name, request.Body)
+		message, err := client.repository.Append(client.name, request.Body)
 		if err != nil {
 			slog.Error("persist message", "error", err)
 			fail("storage_error", "保存失败，消息未发送")
 			return
 		}
 		for _, recipient := range service.sessions {
+			if recipient.room != client.room {
+				continue
+			}
 			requestID := ""
 			if recipient == client {
 				requestID = frame.RequestID
@@ -246,12 +275,12 @@ func (service *Server) handle(client *session, frame protocol.Frame) {
 			fail("invalid_cursor", "历史游标无效")
 			return
 		}
-		latest, err := service.repository.LatestID()
+		latest, err := client.repository.LatestID()
 		if err != nil {
 			fail("storage_error", "读取历史失败")
 			return
 		}
-		page, err := service.repository.Page(query.BeforeID, 0, latest)
+		page, err := client.repository.Page(query.BeforeID, 0, latest)
 		if err != nil {
 			fail("storage_error", "读取历史失败")
 			return
@@ -266,7 +295,7 @@ func (service *Server) handle(client *session, frame protocol.Frame) {
 			fail("invalid_cursor", "同步游标无效")
 			return
 		}
-		page, err := service.repository.Page(-1, query.AfterID, client.through)
+		page, err := client.repository.Page(-1, query.AfterID, client.through)
 		if err != nil {
 			fail("storage_error", "补齐历史失败")
 			client.cancel()

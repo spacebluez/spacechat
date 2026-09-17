@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-socket="${XCHAT_ADMIN_SOCKET:-/run/xchat/admin.sock}"
+socket="${XCHAT_ROOMS_ADMIN_SOCKET:-/run/xchat-rooms/admin.sock}"
 if [ ! -S "$socket" ]; then
     printf '%s\n' 'XChat admin socket is unavailable; history was not cleared.' >&2
     exit 1

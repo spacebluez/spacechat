@@ -26,7 +26,7 @@ def clear_history(socket_path):
         response = connection.getresponse()
         body = response.read()
         if response.status != 200:
-            raise RuntimeError("服务端返回 HTTP {}，请检查 xchat 服务日志".format(response.status))
+            raise RuntimeError("服务端返回 HTTP {}，请检查 xchat-rooms 服务日志".format(response.status))
         result = json.loads(body.decode("utf-8"))
         deleted = result.get("deleted") if isinstance(result, dict) else None
         if type(deleted) is not int or deleted < 0:
@@ -38,18 +38,18 @@ def clear_history(socket_path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="清空 XChat 全部聊天记录，并同步刷新在线客户端。请以 root 或 xchat 用户运行。"
+        description="清空 XChat 全部房间及聊天记录，并同步刷新在线客户端。请以 root 或 xchat-rooms 用户运行。"
     )
     parser.add_argument(
         "--socket",
-        default=os.environ.get("XCHAT_ADMIN_SOCKET", "/run/xchat/admin.sock"),
-        help="管理 Unix socket 路径（默认 /run/xchat/admin.sock）",
+        default=os.environ.get("XCHAT_ROOMS_ADMIN_SOCKET", "/run/xchat-rooms/admin.sock"),
+        help="管理 Unix socket 路径（默认 /run/xchat-rooms/admin.sock）",
     )
     parser.add_argument("--yes", action="store_true", help="跳过交互确认，立即执行清空")
     arguments = parser.parse_args(argv)
     if not arguments.yes:
         try:
-            confirmation = input("将清空全部聊天记录且不可撤销。输入 CLEAR 确认：")
+            confirmation = input("将清空全部房间及聊天记录且不可撤销。输入 CLEAR 确认：")
         except (EOFError, KeyboardInterrupt):
             print("\n已取消，未发送清理请求。")
             return 2

@@ -25,7 +25,7 @@ func TestLoginDoesNotEmitNULOrDuplicateKeyField(t *testing.T) {
 		if strings.ContainsRune(view, 0) {
 			t.Errorf("%s: terminal frame contains %d NUL characters", stage, strings.Count(view, "\x00"))
 		}
-		if strings.Count(view, "输入聊天室密钥") > 1 {
+		if strings.Count(view, "输入房间口令") > 1 {
 			t.Errorf("%s: duplicated key placeholder", stage)
 		}
 	}

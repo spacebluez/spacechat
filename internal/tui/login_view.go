@@ -42,11 +42,11 @@ func (model *Model) loginView() string {
 		fit(muted.Render(model.address)),
 		"昵称",
 		fit(renderTextInput(model.nickname)),
-		"密钥",
+		"房间口令",
 		fit(renderTextInput(model.accessKey)),
 		fit(warning.Render(model.notice)),
 		fit(muted.Render("Tab 切换 · Enter 继续/进入 · Ctrl+C 退出")),
-		fit(muted.Render("需要共享密钥；昵称不是身份凭证")),
+		fit(muted.Render("同口令进入同房间；昵称不是身份凭证")),
 	}
 	content := strings.Join(lines, "\n")
 	if model.compactLogin() {

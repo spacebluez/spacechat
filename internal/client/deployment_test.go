@@ -10,12 +10,12 @@ import (
 	"xchat/internal/protocol"
 )
 
-func TestDeployedRejectsUnauthorized(t *testing.T) {
+func TestDeployedRejectsEmptyRoomKey(t *testing.T) {
 	address := os.Getenv("XCHAT_SMOKE_ADDRESS")
 	if address == "" {
 		t.Skip("set XCHAT_SMOKE_ADDRESS to verify deployed authentication")
 	}
-	for _, key := range []string{"", "invalid-deployment-test-key"} {
+	for _, key := range []string{""} {
 		network := New(address)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		done := make(chan struct{})
@@ -30,7 +30,7 @@ func TestDeployedRejectsUnauthorized(t *testing.T) {
 		cancel()
 		<-done
 	}
-	t.Log("deployed server rejected missing and incorrect keys without exposing history")
+	t.Log("deployed server rejected empty room keys without exposing history")
 }
 
 func TestDeploymentSmoke(t *testing.T) {

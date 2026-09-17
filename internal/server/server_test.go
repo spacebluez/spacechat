@@ -31,7 +31,9 @@ func connect(t *testing.T, address string, join protocol.Join) *peer {
 	}
 	t.Cleanup(func() { connection.CloseNow() })
 	client := &peer{connection, ctx}
-	join.AccessKey = "test-access-key"
+	if join.AccessKey == "" {
+		join.AccessKey = "test-access-key"
+	}
 	client.send(t, "join", "join", join)
 	return client
 }

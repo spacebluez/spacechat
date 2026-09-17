@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,7 +27,7 @@ type Model struct {
 	name              string
 	nickname          textinput.Model
 	accessKey         textinput.Model
-	input             textinput.Model
+	input             textarea.Model
 	viewport          viewport.Model
 	network           *client.Client
 	cancel            context.CancelFunc
@@ -47,13 +49,18 @@ func New(address string) *Model {
 	nickname.Prompt = "> "
 	nickname.Focus()
 	keyInput := textinput.New()
-	keyInput.Placeholder = "输入聊天室密钥"
+	keyInput.Placeholder = "输入房间口令"
 	keyInput.CharLimit = 256
 	keyInput.EchoMode = textinput.EchoPassword
 	keyInput.EchoCharacter = '*'
 	keyInput.Prompt = "> "
-	input := textinput.New()
-	input.Placeholder = "输入消息，Enter 发送"
+	input := textarea.New()
+	input.ShowLineNumbers = false
+	input.SetHeight(3)
+	input.MaxHeight = 2000
+	input.KeyMap.Paste = key.NewBinding(key.WithKeys("ctrl+v", "shift+insert"))
+	input.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
+	input.Placeholder = "输入消息，Enter 发送，Shift+Enter 换行"
 	input.CharLimit = 2000
 	input.Prompt = "> "
 	model := &Model{address: address, nickname: nickname, accessKey: keyInput, input: input, viewport: viewport.New(70, 15), width: 100, height: 26, pending: make(map[string]string), state: "未连接"}
@@ -77,6 +84,15 @@ func waitEvent(network *client.Client) tea.Cmd {
 }
 func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch value := message.(type) {
+	case pasteTextMsg:
+		if !model.joined {
+			return model, nil
+		}
+		if value.err != nil {
+			model.notice = "无法读取剪贴板"
+			return model, nil
+		}
+		return model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(normalizeNewlines(value.text)), Paste: true})
 	case tea.WindowSizeMsg:
 		model.width = value.Width
 		model.height = value.Height
@@ -93,6 +109,10 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.applyEvent(value.event)
 		return model, waitEvent(model.network)
 	case tea.KeyMsg:
+		if value.Paste {
+			value.Runes = []rune(normalizeNewlines(string(value.Runes)))
+			message = value
+		}
 		if value.String() == "ctrl+c" {
 			model.Close()
 			return model, tea.Quit
@@ -144,6 +164,8 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, command
 		}
 		switch value.String() {
+		case "ctrl+v", "shift+insert":
+			return model, readClipboard
 		case "enter":
 			if !model.connected {
 				model.notice = "连接恢复后才能发送，草稿已保留"
@@ -345,8 +367,10 @@ func (model *Model) resize() {
 		width -= 24
 	}
 	model.viewport.Width = max(10, width)
-	model.viewport.Height = max(3, model.height-9)
-	model.input.Width = max(5, model.width-6)
+	inputHeight := min(3, max(1, model.height-9))
+	model.input.SetHeight(inputHeight)
+	model.viewport.Height = max(1, model.height-7-inputHeight)
+	model.input.SetWidth(max(5, model.width-4))
 	loginWidth := model.width
 	if !model.compactLogin() {
 		loginWidth -= 8

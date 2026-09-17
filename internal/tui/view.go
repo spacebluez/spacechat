@@ -57,7 +57,7 @@ func (model *Model) View() string {
 	if !model.joined {
 		return model.loginView()
 	}
-	header := accent.Render(" XCHAT ") + muted.Render("公共聊天室") + "  " + model.state + fmt.Sprintf(" · %d 人", len(model.users))
+	header := accent.Render(" XCHAT ") + muted.Render("口令房间") + "  " + model.state + fmt.Sprintf(" · %d 人", len(model.users))
 	if len(model.pending) > 0 {
 		header += fmt.Sprintf(" · 待确认 %d", len(model.pending))
 	}
@@ -78,7 +78,7 @@ func (model *Model) View() string {
 		sidebar := panel.Width(20).Height(model.viewport.Height).Padding(0, 1).Render(strings.Join(names, "\n"))
 		body = lipgloss.JoinHorizontal(lipgloss.Top, body, sidebar)
 	}
-	footer := muted.Render("Enter 发送 · PgUp/PgDn 翻页 · Ctrl+End 最新 · Ctrl+C 退出")
+	footer := muted.Render("Enter 发送 · Shift+Enter 换行 · PgUp/PgDn 翻页 · Ctrl+End 最新 · Ctrl+C 退出")
 	notice := warning.Render(ansi.Truncate(model.notice, width, "…"))
-	return strings.Join([]string{ansi.Truncate(header, model.width, "…"), body, renderTextInput(model.input), notice, ansi.Truncate(footer, model.width, "…")}, "\n")
+	return strings.Join([]string{ansi.Truncate(header, model.width, "…"), body, model.input.View(), notice, ansi.Truncate(footer, model.width, "…")}, "\n")
 }

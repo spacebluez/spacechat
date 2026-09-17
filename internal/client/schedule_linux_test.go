@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http/httptest"
@@ -12,11 +13,11 @@ import (
 	"time"
 
 	"xchat/internal/admin"
+	"xchat/internal/securestore"
 	"xchat/internal/server"
-	"xchat/internal/store"
 )
 
-func TestSystemdTimerClearsIsolatedRoom(t *testing.T) {
+func TestSystemdTimerClearsIsolatedRooms(t *testing.T) {
 	if os.Getenv("XCHAT_SYSTEMD_TEST") != "1" {
 		t.Skip("requires explicit permission to create an isolated transient systemd timer")
 	}
@@ -24,14 +25,25 @@ func TestSystemdTimerClearsIsolatedRoom(t *testing.T) {
 	if err := os.Chmod(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
-	repository, err := store.Open(filepath.Join(directory, "chat.db"))
+	database, err := securestore.Open(filepath.Join(directory, "rooms.db"), bytes.Repeat([]byte{5}, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer repository.Close()
+	defer database.Close()
+	repository, err := database.Room("test-access-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := database.Room("another-room")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = second.Append("seed", "other room"); err != nil {
+		t.Fatal(err)
+	}
 	repository.Append("seed", "isolated timer test")
 	instance := repository.InstanceID()
-	service := server.New(repository, "test-access-key")
+	service := server.NewRooms(database)
 	defer service.Close()
 	httpServer := httptest.NewServer(service.Handler())
 	defer httpServer.Close()
@@ -47,13 +59,13 @@ func TestSystemdTimerClearsIsolatedRoom(t *testing.T) {
 	go func() { network.Run(ctx, "observer", "test-access-key"); close(done) }()
 	defer func() { cancel(); <-done }()
 	awaitEvent(t, network.Events(), func(event Event) bool { return event.State == "connected" })
-	script, err := filepath.Abs("../../deploy/cleanup.sh")
+	script, err := filepath.Abs("../../deploy/clear_history.py")
 	if err != nil {
 		t.Fatal(err)
 	}
 	unit := fmt.Sprintf("xchat-cleanup-test-%d", time.Now().UnixNano())
 	defer exec.Command("systemctl", "stop", unit+".timer", unit+".service").Run()
-	command := exec.Command("systemd-run", "--unit="+unit, "--on-active=2s", "--timer-property=AccuracySec=1s", "--property=Environment=XCHAT_ADMIN_SOCKET="+socket, "/bin/sh", script)
+	command := exec.Command("systemd-run", "--unit="+unit, "--on-active=2s", "--timer-property=AccuracySec=1s", "/usr/bin/python3", script, "--yes", "--socket", socket)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("start test timer: %v: %s", err, output)
 	}
@@ -67,8 +79,11 @@ func TestSystemdTimerClearsIsolatedRoom(t *testing.T) {
 	}
 	awaitEvent(t, network.Events(), func(event Event) bool { return event.Frame != nil && event.Frame.Type == "ack" })
 	latest, _ = repository.LatestID()
-	if latest != 2 {
+	if latest != 3 {
 		t.Fatal("post-cleanup message was not saved")
 	}
-	t.Log("real systemd timer invoked cleanup.sh; isolated room cleared and client remained connected")
+	if remaining, err := second.LatestID(); err != nil || remaining != 0 {
+		t.Fatal("other room was not cleared")
+	}
+	t.Log("real systemd timer invoked Python cleanup; all isolated rooms cleared and client remained connected")
 }
