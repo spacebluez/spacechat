@@ -56,6 +56,9 @@ func (model *Model) View() string {
 	if model.switcher != nil {
 		return model.roomSwitchView()
 	}
+	if model.picker != nil {
+		return model.kaomojiView()
+	}
 	width := max(20, model.width-4)
 	if !model.joined {
 		return model.loginView()

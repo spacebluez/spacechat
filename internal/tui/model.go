@@ -24,6 +24,7 @@ type networkEvent struct {
 }
 type Model struct {
 	switcher          *roomSwitch
+	picker            *kaomojiPicker
 	address           string
 	name              string
 	nickname          textinput.Model
@@ -91,7 +92,7 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case roomSwitchPaste:
 		return model, model.applySwitchPaste(value)
 	case pasteTextMsg:
-		if !model.joined || model.switcher != nil || (value.source != nil && value.source != model.network) {
+		if !model.joined || model.switcher != nil || model.picker != nil || (value.source != nil && value.source != model.network) {
 			return model, nil
 		}
 		if value.err != nil {
@@ -134,8 +135,14 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.switcher != nil {
 			return model, model.updateRoomSwitch(message)
 		}
+		if model.picker != nil {
+			return model, model.updateKaomojiPicker(message)
+		}
 		if model.joined && value.String() == "f2" {
 			return model, model.openRoomSwitch()
+		}
+		if model.joined && value.String() == "f3" {
+			return model, model.openKaomojiPicker()
 		}
 		if !model.joined {
 			if value.String() == "tab" || value.String() == "shift+tab" {
