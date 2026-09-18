@@ -11,6 +11,12 @@ import (
 	"xchat/internal/protocol"
 )
 
+func init() {
+	if err := kaomoji.LoadFile("../../config/kaomoji.json"); err != nil {
+		panic(err)
+	}
+}
+
 func kaomojiModel() *Model {
 	model := New("ws://localhost/ws")
 	model.joined = true
@@ -22,7 +28,7 @@ func kaomojiModel() *Model {
 func kaomojiKey(model *Model, kind tea.KeyType) { model.Update(tea.KeyMsg{Type: kind}) }
 
 func TestKaomojiCatalogPassesProtocolValidation(t *testing.T) {
-	for _, category := range kaomoji.Catalog {
+	for _, category := range kaomoji.Categories() {
 		for _, item := range category.Items {
 			if err := protocol.ValidateBody(item.Text); err != nil {
 				t.Fatalf("category %q item %q fails message validation: %v", category.ID, item.Text, err)

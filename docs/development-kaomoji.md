@@ -11,7 +11,7 @@
 当前 XChat 客户端只支持发送纯文本消息，聊天中缺少轻量的表情表达手段。本项目是纯终端（TUI）应用，不适合引入图片、GIF 或远程表情资源，因此选择 **内置颜文字（Kaomoji）** 作为“表情包”的等价物：
 
 - 颜文字本身就是 Unicode 文本，天然符合现有消息模型与校验规则；
-- 可以随客户端二进制内置，无需网络请求、无需服务端改动；
+- 目录由 `config/kaomoji.json` 配置文件加载，无需网络请求、无需服务端改动；
 - 通过快捷键调出选择器，用键盘选择并插入当前草稿，交互上对标“表情面板”。
 
 本功能目标：
@@ -26,10 +26,11 @@
 
 ### 2.1 本期范围
 
-- 新增 `internal/kaomoji` 包，内置分类颜文字目录。
+- 新增 `internal/kaomoji` 包，从 JSON 配置文件加载并校验分类颜文字目录。
 - 客户端聊天态新增 `F3` 快捷键，打开/关闭颜文字选择器。
 - 选择器支持键盘导航、预览、插入、取消。
 - 插入逻辑与现有草稿编辑（`textarea.Model`）集成。
+- 新增 `config/kaomoji.json` 与 `--kaomoji` 启动参数，客户端启动时加载配置文件。
 - 配套单元测试、渲染测试与 README 文档更新。
 
 ### 2.2 非目标
@@ -61,16 +62,19 @@
 
 新增：
 
-- `internal/kaomoji/catalog.go`
+- `internal/kaomoji/catalog.go`（目录加载、校验）
 - `internal/kaomoji/catalog_test.go`
 - `internal/tui/kaomoji.go`
 - `internal/tui/kaomoji_view.go`
 - `internal/tui/kaomoji_test.go`
+- `config/kaomoji.json`
 
 修改：
 
 - `internal/tui/model.go`：增加选择器状态、F3 打开逻辑、按键路由。
 - `internal/tui/view.go`：选择器打开时优先渲染选择器界面。
+- `cmd/xchat/main.go`：新增 `--kaomoji` 参数并在启动时加载目录。
+- `scripts/build.ps1`、`scripts/build-client.ps1`：发布包携带 `config/kaomoji.json`。
 - `README.md`：快捷键表与功能说明。
 - `docs/verification-kaomoji-*.md`：新增验收文档（实现后补）。
 
@@ -151,31 +155,32 @@
 
 ### 5.1 数据结构
 
-新增包 `internal/kaomoji`，目录编译期内置，无运行时文件读取：
+新增包 `internal/kaomoji`，目录在运行时从 JSON 配置文件读取并校验：
 
-```go
-package kaomoji
-
-type Item struct {
-    Text     string   // 单行颜文字正文
-    Keywords []string // 预留：未来搜索/过滤用，本期可不填
+`json
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "happy",
+      "name": "开心",
+      "items": [
+        { "text": "(◕‿◕✿)" },
+        { "text": "(*^▽^*)" }
+      ]
+    }
+  ]
 }
+``r
 
-type Category struct {
-    ID    string // 稳定标识，如 "happy"
-    Name  string // 显示名，如 "开心"
-    Items []Item
-}
+internal/kaomoji 负责解析并校验该文件：
 
-var Catalog = []Category{
-    {ID: "happy", Name: "开心", Items: []Item{
-        {Text: "(◕‿◕✿)"},
-        {Text: "(*^▽^*)"},
-        {Text: "ヾ(≧▽≦*)o"},
-    }},
-    // ...
-}
-```
+`go
+func Load(data []byte) error        // 解析 JSON 并校验后替换当前目录
+func LoadFile(path string) error    // 读取文件并调用 Load
+func Categories() []Category        // 返回当前目录的防御性副本
+func ValidateCatalog() error        // 校验当前目录
+``r
 
 导出最小 API：
 
@@ -209,7 +214,7 @@ func ValidateCatalog() error // 供测试调用，校验目录约束
 | greeting | 问候 | `(｡･∀･)ﾉﾞ` `(＾▽＾)/` `(´▽｀)ノ♪` |
 | animal | 动物 | `(=^･ω･^=)` `(￣(工)￣)` `(・ω・)` `ʕ •ᴥ•ʔ` |
 
-> 说明：上表仅用于文档示例，最终目录以 `catalog.go` 实际内容为准；实现时应完整、去重并逐条通过 `ValidateCatalog` 校验。
+> 说明：上表仅用于文档示例，最终目录以 `config/kaomoji.json` 实际内容为准；修改配置文件即可增删条目，无需重新编译。
 
 ## 6. 架构与模块改动
 
@@ -217,7 +222,7 @@ func ValidateCatalog() error // 供测试调用，校验目录约束
 
 职责单一：只保存目录数据并提供校验，不依赖 `tui`、`protocol`，避免循环依赖。可独立测试。
 
-- `catalog.go`：`Item`、`Category`、`Catalog`、`Categories()`、`ValidateCatalog()`。
+- `catalog.go`：`Item`、`Category`、`Load()`、`LoadFile()`、`Categories()`、`ValidateCatalog()`。
 
 ### 6.2 `internal/tui` 改动
 
@@ -367,7 +372,7 @@ func (m *Model) kaomojiView() string
 
 - 收藏 / 最近使用。
 - 关键词或拼音搜索。
-- 颜文字目录外部化（JSON/配置文件）与热加载。
+- 颜文字目录热加载。
 - 用户自定义颜文字。
 - 可选快捷键配置。
 - 真图片/GIF 表情（需服务端协议与存储配合，另立方案）。

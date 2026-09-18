@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"xchat/internal/client"
+	"xchat/internal/kaomoji"
 	"xchat/internal/terminal"
 	"xchat/internal/tui"
 )
@@ -15,6 +16,7 @@ var version = "dev"
 
 func main() {
 	address := flag.String("server", defaultServer, "WebSocket server address")
+	kaomojiPath := flag.String("kaomoji", "config/kaomoji.json", "Kaomoji catalog JSON file")
 	showVersion := flag.Bool("version", false, "Show version")
 	flag.Parse()
 	if *showVersion {
@@ -23,6 +25,10 @@ func main() {
 	}
 	if err := client.ValidateAddress(*address); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if err := kaomoji.LoadFile(*kaomojiPath); err != nil {
+		fmt.Fprintln(os.Stderr, "xchat:", err)
 		os.Exit(2)
 	}
 	model := tui.New(*address)

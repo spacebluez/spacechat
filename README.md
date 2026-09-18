@@ -10,6 +10,7 @@ Go 服务端 + Windows x64 TUI 客户端，完整源码、测试、构建及部�
 
     .\xchat-rooms.exe --server ws://chat.example.invalid:18081/ws
     .\xchat-rooms.exe --version
+    .\xchat-rooms.exe --kaomoji config/kaomoji.json
 
 输入昵称按 Enter，再输入房间口令按 Enter。相同口令进入相同房间，不存在则自动创建。无需账号、无需管理员预建房间。口令精确匹配且区分大小写与空格，1–256 个字符，不允许全空白及控制字符。不同口令就是不同房间，输错口令可能进入一个新房间。
 
@@ -35,6 +36,8 @@ Go 服务端 + Windows x64 TUI 客户端，完整源码、测试、构建及部�
 ## 内置颜文字
 
 聊天中输入 **F3** 打开内置颜文字选择器，用方向键选择、Tab / ←→ 切换分类，Enter 将选中颜文字插入当前草稿光标处，Esc 取消。颜文字就是普通消息正文，不自动发送，不修改服务端或协议。
+
+颜文字目录不再写死在代码中，而是从 JSON 配置文件加载。客户端默认读取当前工作目录下的 `config/kaomoji.json`（发布包解压后与 `xchat-rooms.exe` 同目录），可通过 `--kaomoji` 参数指定其他路径；文件缺失或格式非法时客户端会拒绝启动并提示错误。修改该文件即可增删分类与条目，无需重新编译。
 
 ## 客户端内切换房间
 
@@ -156,3 +159,4 @@ Linux 可运行 go test -race ./...。XCHAT_EXE 指向新 exe 时启用 Windows 
 当前设计与实施计划见 docs/superpowers 下 2026-09-17 文档；先前验收文档是历史版本记录，不是本分支部署指南。
 
 多房间服务验收见 docs/verification-rooms-2026-09-17.md；客户端切换验收见 docs/verification-room-switch-2026-09-17.md；0.3.2 界面与 F2 修复验收见 docs/verification-client-ui-0.3.2.md。
+

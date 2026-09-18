@@ -19,8 +19,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Client build failed" }
     Copy-Item "dist/xchat-rooms-$Version.exe" "$package/xchat-rooms.exe" -Force
     Copy-Item README.md "$package/README.md" -Force
+    New-Item -ItemType Directory -Force -Path "$package/config" | Out-Null
+    Copy-Item "config/kaomoji.json" "$package/config/kaomoji.json" -Force
     Compress-Archive -Path "$package/*" -DestinationPath "dist/xchat-rooms-windows-amd64-$Version.zip" -Force
-    $sourcePaths = @("cmd", "internal", "scripts", "deploy", "docs", "go.mod", "go.sum", "README.md", ".gitignore", ".gitattributes")
+    $sourcePaths = @("cmd", "config", "internal", "scripts", "deploy", "docs", "go.mod", "go.sum", "README.md", ".gitignore", ".gitattributes")
     Compress-Archive -Path $sourcePaths -DestinationPath "dist/xchat-rooms-source-$Version.zip" -Force
     Write-Output "Client-only release built: $Version (no server changes)"
 }

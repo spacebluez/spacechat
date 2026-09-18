@@ -1,122 +1,95 @@
 package kaomoji
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
 
 // Item is a single kaomoji entry. Keywords is reserved for future search and
-// may be empty in the first release.
+// may be empty.
 type Item struct {
-	Text     string
-	Keywords []string
+	Text     string   `json:"text"`
+	Keywords []string `json:"keywords,omitempty"`
 }
 
 // Category is a named group of kaomoji entries.
 type Category struct {
-	ID    string
-	Name  string
-	Items []Item
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Items []Item `json:"items"`
 }
 
-// Catalog is the built-in kaomoji library. Keep every entry single-line,
-// valid UTF-8 and free of control characters so it always passes the client
-// message validation used for regular chat text.
-var Catalog = []Category{
-	{ID: "happy", Name: "开心", Items: []Item{
-		{Text: "(◕‿◕✿)"},
-		{Text: "(*^▽^*)"},
-		{Text: "ヾ(≧▽≦*)o"},
-		{Text: "ヽ(✿ﾟ▽ﾟ)ノ"},
-		{Text: "(≧∇≦)ﾉ"},
-		{Text: "╰(*°▽°*)╯"},
-	}},
-	{ID: "sad", Name: "难过", Items: []Item{
-		{Text: "(╥﹏╥)"},
-		{Text: "(｡•́︿•̀｡)"},
-		{Text: "(T_T)"},
-		{Text: "(ノへ￣、)"},
-		{Text: "(´;ω;｀)"},
-		{Text: "(ノ_<。)"},
-	}},
-	{ID: "surprise", Name: "惊讶", Items: []Item{
-		{Text: "(⊙_⊙)"},
-		{Text: "Σ(っ °Д °;)っ"},
-		{Text: "(°ロ°)"},
-		{Text: "⊙０⊙"},
-		{Text: "(⊙ˍ⊙)"},
-		{Text: "(°Д°)"},
-	}},
-	{ID: "angry", Name: "生气", Items: []Item{
-		{Text: "(╬ Ò﹏Ó)"},
-		{Text: "(￣^￣)ゞ"},
-		{Text: "(｀皿´)"},
-		{Text: "(¬_¬ )"},
-		{Text: "(ノಠ益ಠ)ノ"},
-		{Text: "(ㆆ_ㆆ)"},
-	}},
-	{ID: "cute", Name: "卖萌", Items: []Item{
-		{Text: "(๑•̀ㅂ•́)و✧"},
-		{Text: "(๑¯◡¯๑)"},
-		{Text: "(｡•ᴗ•｡)"},
-		{Text: "(´• ω •)"},
-		{Text: "(・ω・)"},
-		{Text: "(￣▽￣)~*"},
-	}},
-	{ID: "action", Name: "动作", Items: []Item{
-		{Text: "(ง •_•)ง"},
-		{Text: "(ノ≧∀≦)ノ"},
-		{Text: "_(:з」∠)_"},
-		{Text: "(づ｡◕‿‿◕｡)づ"},
-		{Text: "(๑•̀ㅂ•́)و"},
-		{Text: "ヽ(ﾟ∀ﾟ)ﾉ"},
-	}},
-	{ID: "greeting", Name: "问候", Items: []Item{
-		{Text: "(｡･∀･)ﾉﾞ"},
-		{Text: "(＾▽＾)/"},
-		{Text: "(´▽｀)ノ♪"},
-		{Text: "(￣▽￣)ノ"},
-		{Text: "(´･ω･)ﾉ"},
-		{Text: "ヾ(＾∇＾)"},
-	}},
-	{ID: "animal", Name: "动物", Items: []Item{
-		{Text: "(=^･ω･^=)"},
-		{Text: "(￣(工)￣)"},
-		{Text: "ʕ •ᴥ•ʔ"},
-		{Text: "(^・ω・^ )"},
-		{Text: "(◕ᴥ◕)"},
-		{Text: "(=^-ω-^=)"},
-	}},
-	{ID: "other", Name: "搞怪", Items: []Item{
-		{Text: "(¯\\_(ツ)_/¯)"},
-		{Text: "(╯°□°)╯︵ ┻━┻"},
-		{Text: "┬─┬ノ( º _ ºノ)"},
-		{Text: "( ͡° ͜ʖ ͡°)"},
-		{Text: "(⌐■_■)"},
-		{Text: "(￣ー￣)"},
-	}},
+// file is the on-disk catalog format. Version is reserved so future format
+// changes can be rejected or migrated explicitly.
+type file struct {
+	Version    int        `json:"version"`
+	Categories []Category `json:"categories"`
 }
 
-// Categories returns a defensive copy of the built-in catalog so callers can
-// reorder or trim their local view without mutating the global library.
+var (
+	mu      sync.RWMutex
+	catalog []Category
+)
+
+// Load parses a kaomoji catalog document and atomically replaces the active
+// catalog after it has passed validation.
+func Load(data []byte) error {
+	var document file
+	if err := json.Unmarshal(data, &document); err != nil {
+		return fmt.Errorf("parse kaomoji catalog: %w", err)
+	}
+	if document.Version != 1 {
+		return fmt.Errorf("unsupported kaomoji catalog version %d", document.Version)
+	}
+	if err := validate(document.Categories); err != nil {
+		return err
+	}
+	mu.Lock()
+	catalog = document.Categories
+	mu.Unlock()
+	return nil
+}
+
+// LoadFile reads path and loads it as a kaomoji catalog.
+func LoadFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read kaomoji catalog %q: %w", path, err)
+	}
+	return Load(data)
+}
+
+// Categories returns a defensive copy of the active catalog so callers can
+// reorder or trim their local view without mutating the shared library.
 func Categories() []Category {
-	categories := make([]Category, len(Catalog))
-	for i, category := range Catalog {
+	mu.RLock()
+	defer mu.RUnlock()
+	categories := make([]Category, len(catalog))
+	for i, category := range catalog {
 		categories[i] = Category{ID: category.ID, Name: category.Name, Items: append([]Item(nil), category.Items...)}
 	}
 	return categories
 }
 
 // ValidateCatalog verifies the catalog invariants required by the picker and
-// by protocol.ValidateBody.
+// by protocol.ValidateBody. It checks the currently loaded catalog.
 func ValidateCatalog() error {
-	if len(Catalog) == 0 {
+	mu.RLock()
+	defer mu.RUnlock()
+	return validate(catalog)
+}
+
+func validate(categories []Category) error {
+	if len(categories) == 0 {
 		return fmt.Errorf("catalog must not be empty")
 	}
-	ids := make(map[string]bool, len(Catalog))
-	for _, category := range Catalog {
+	ids := make(map[string]bool, len(categories))
+	for _, category := range categories {
 		if strings.TrimSpace(category.ID) == "" {
 			return fmt.Errorf("category ID must not be empty")
 		}

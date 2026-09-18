@@ -18,13 +18,15 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Client build failed" }
     Copy-Item "dist/xchat-rooms-$Version.exe" dist/rooms-client/xchat-rooms.exe -Force
     Copy-Item README.md dist/rooms-client/README.md -Force
+    New-Item -ItemType Directory -Force -Path "dist/rooms-client/config" | Out-Null
+    Copy-Item "config/kaomoji.json" "dist/rooms-client/config/kaomoji.json" -Force
     $env:GOOS = "linux"
     go build -trimpath -ldflags "-s -w" -o dist/rooms-server/xchat-rooms-server-linux-amd64 ./cmd/xchat-server
     if ($LASTEXITCODE -ne 0) { throw "Server build failed" }
     Copy-Item deploy/rooms/*, deploy/clear_history.py, README.md -Destination dist/rooms-server -Force
     Compress-Archive -Path dist/rooms-client/* -DestinationPath "dist/xchat-rooms-windows-amd64-$Version.zip" -Force
     Compress-Archive -Path dist/rooms-server/* -DestinationPath "dist/xchat-rooms-server-linux-amd64-$Version.zip" -Force
-    $sourcePaths = @("cmd", "internal", "scripts", "deploy", "docs", "go.mod", "go.sum", "README.md", ".gitignore", ".gitattributes")
+    $sourcePaths = @("cmd", "config", "internal", "scripts", "deploy", "docs", "go.mod", "go.sum", "README.md", ".gitignore", ".gitattributes")
     Compress-Archive -Path $sourcePaths -DestinationPath "dist/xchat-rooms-source-$Version.zip" -Force
     Write-Output "Isolated rooms artifacts built in $root\dist"
 }
