@@ -26,7 +26,7 @@ func TestAutomaticReconnectAfterServerRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	address := listener.Addr().String()
-	service := server.New(repository)
+	service := server.New(repository, "test-access-key")
 	httpServer := &http.Server{Handler: service.Handler()}
 	go httpServer.Serve(listener)
 	defer func() { service.Close(); httpServer.Close() }()
@@ -35,7 +35,7 @@ func TestAutomaticReconnectAfterServerRestart(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	defer func() { cancel(); <-done }()
-	go func() { network.Run(ctx, "小明"); close(done) }()
+	go func() { network.Run(ctx, "小明", "test-access-key"); close(done) }()
 	awaitEvent(t, network.Events(), func(event Event) bool { return event.State == "connected" })
 	service.Close()
 	httpServer.Close()
@@ -49,7 +49,7 @@ func TestAutomaticReconnectAfterServerRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service = server.New(repository)
+	service = server.New(repository, "test-access-key")
 	httpServer = &http.Server{Handler: service.Handler()}
 	go httpServer.Serve(listener)
 	seen := make(map[int64]bool)
@@ -89,7 +89,7 @@ func TestMaximumChineseMessagePage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := server.New(repository)
+	service := server.New(repository, "test-access-key")
 	httpServer := &http.Server{Handler: service.Handler()}
 	go httpServer.Serve(listener)
 	defer httpServer.Close()
@@ -98,7 +98,7 @@ func TestMaximumChineseMessagePage(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	defer func() { cancel(); <-done }()
-	go func() { network.Run(ctx, "viewer"); close(done) }()
+	go func() { network.Run(ctx, "viewer", "test-access-key"); close(done) }()
 	count := 0
 	awaitEvent(t, network.Events(), func(event Event) bool {
 		if event.Frame != nil && event.Frame.Type == "history" {

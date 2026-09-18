@@ -24,6 +24,7 @@ type Message struct {
 }
 
 type Join struct {
+	AccessKey  string `json:"access_key"`
 	Nickname   string `json:"nickname"`
 	InstanceID string `json:"instance_id,omitempty"`
 	AfterID    int64  `json:"after_id,omitempty"`
@@ -57,6 +58,12 @@ type Failure struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
+type Cleared struct {
+	InstanceID string `json:"instance_id"`
+	Deleted    int64  `json:"deleted"`
+	CreatedAt  string `json:"created_at"`
+}
+
 type Complete struct {
 	ThroughID int64 `json:"through_id"`
 }
@@ -80,7 +87,7 @@ func ValidateBody(body string) error {
 	if strings.TrimSpace(body) == "" || utf8.RuneCountInString(body) > 2000 {
 		return errors.New("消息须为 1–2000 个字符且不能全为空白")
 	}
-	return validateText(body)
+	return validateText(strings.ReplaceAll(body, "\n", ""))
 }
 
 func validateText(text string) error {

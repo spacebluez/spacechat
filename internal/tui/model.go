@@ -7,9 +7,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"xchat/internal/accesskey"
 	"xchat/internal/client"
 	"xchat/internal/protocol"
 )
@@ -20,10 +23,12 @@ type networkEvent struct {
 	closed bool
 }
 type Model struct {
+	switcher          *roomSwitch
 	address           string
 	name              string
 	nickname          textinput.Model
-	input             textinput.Model
+	accessKey         textinput.Model
+	input             textarea.Model
 	viewport          viewport.Model
 	network           *client.Client
 	cancel            context.CancelFunc
@@ -44,16 +49,30 @@ func New(address string) *Model {
 	nickname.CharLimit = 20
 	nickname.Prompt = "> "
 	nickname.Focus()
-	input := textinput.New()
-	input.Placeholder = "输入消息，Enter 发送"
+	keyInput := textinput.New()
+	keyInput.Placeholder = "输入房间口令"
+	keyInput.CharLimit = 256
+	keyInput.EchoMode = textinput.EchoPassword
+	keyInput.EchoCharacter = '*'
+	keyInput.Prompt = "> "
+	input := textarea.New()
+	input.ShowLineNumbers = false
+	input.SetHeight(3)
+	input.MaxHeight = 2000
+	input.KeyMap.Paste = key.NewBinding(key.WithKeys("ctrl+v", "shift+insert"))
+	input.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
+	input.Placeholder = "输入消息，Enter 发送，Shift+Enter 换行"
 	input.CharLimit = 2000
 	input.Prompt = "> "
-	model := &Model{address: address, nickname: nickname, input: input, viewport: viewport.New(70, 15), width: 100, height: 26, pending: make(map[string]string), state: "未连接"}
+	model := &Model{address: address, nickname: nickname, accessKey: keyInput, input: input, viewport: viewport.New(70, 15), width: 100, height: 26, pending: make(map[string]string), state: "未连接"}
 	model.resize()
 	return model
 }
 func (model *Model) Init() tea.Cmd { return textinput.Blink }
 func (model *Model) Close() {
+	if model.switcher != nil && model.switcher.candidate != nil {
+		model.switcher.candidate.Close()
+	}
 	if model.cancel != nil {
 		model.cancel()
 	}
@@ -69,6 +88,22 @@ func waitEvent(network *client.Client) tea.Cmd {
 }
 func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch value := message.(type) {
+	case roomSwitchPaste:
+		return model, model.applySwitchPaste(value)
+	case pasteTextMsg:
+		if !model.joined || model.switcher != nil || (value.source != nil && value.source != model.network) {
+			return model, nil
+		}
+		if value.err != nil {
+			model.notice = "无法读取剪贴板"
+			return model, nil
+		}
+		return model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(normalizeNewlines(value.text)), Paste: true})
+	case roomSwitchTimeout:
+		if model.switcher != nil && model.switcher.candidate != nil && model.switcher.candidate.network == value.source {
+			return model, model.failRoomSwitch("进入目标房间超时；原房间和草稿保留")
+		}
+		return model, nil
 	case tea.WindowSizeMsg:
 		model.width = value.Width
 		model.height = value.Height
@@ -76,6 +111,9 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.refresh(false)
 		return model, nil
 	case networkEvent:
+		if model.switcher != nil && model.switcher.candidate != nil && value.source == model.switcher.candidate.network {
+			return model, model.candidateEvent(value)
+		}
 		if value.source != nil && value.source != model.network {
 			return model, nil
 		}
@@ -83,16 +121,43 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		model.applyEvent(value.event)
-		return model, waitEvent(model.network)
+		return model, tea.Batch(waitEvent(model.network), model.continueRoomSwitch(value.event))
 	case tea.KeyMsg:
+		if value.Paste {
+			value.Runes = []rune(normalizeNewlines(string(value.Runes)))
+			message = value
+		}
 		if value.String() == "ctrl+c" {
 			model.Close()
 			return model, tea.Quit
 		}
+		if model.switcher != nil {
+			return model, model.updateRoomSwitch(message)
+		}
+		if model.joined && value.String() == "f2" {
+			return model, model.openRoomSwitch()
+		}
 		if !model.joined {
+			if value.String() == "tab" || value.String() == "shift+tab" {
+				if model.nickname.Focused() {
+					model.nickname.Blur()
+					return model, model.accessKey.Focus()
+				}
+				model.accessKey.Blur()
+				return model, model.nickname.Focus()
+			}
 			if value.String() == "enter" {
 				name := strings.TrimSpace(model.nickname.Value())
 				if err := protocol.ValidateName(name); err != nil {
+					model.notice = err.Error()
+					return model, nil
+				}
+				if model.nickname.Focused() {
+					model.nickname.Blur()
+					return model, model.accessKey.Focus()
+				}
+				key := model.accessKey.Value()
+				if err := accesskey.Validate(key); err != nil {
 					model.notice = err.Error()
 					return model, nil
 				}
@@ -102,18 +167,25 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.state = "连接中"
 				model.notice = ""
 				model.nickname.Blur()
+				model.accessKey.Blur()
 				model.input.Focus()
 				model.network = client.New(model.address)
 				ctx, cancel := context.WithCancel(context.Background())
 				model.cancel = cancel
 				network := model.network
-				return model, tea.Batch(textinput.Blink, func() tea.Msg { go network.Run(ctx, name); return waitEvent(network)() })
+				return model, tea.Batch(textinput.Blink, func() tea.Msg { go network.Run(ctx, name, key); return waitEvent(network)() })
 			}
 			var command tea.Cmd
-			model.nickname, command = model.nickname.Update(message)
+			if model.nickname.Focused() {
+				model.nickname, command = model.nickname.Update(message)
+			} else {
+				model.accessKey, command = model.accessKey.Update(message)
+			}
 			return model, command
 		}
 		switch value.String() {
+		case "ctrl+v", "shift+insert":
+			return model, readRoomClipboard(model.network)
 		case "enter":
 			if !model.connected {
 				model.notice = "连接恢复后才能发送，草稿已保留"
@@ -150,14 +222,22 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 	case tea.MouseMsg:
+		if model.switcher != nil {
+			return model, nil
+		}
 		var command tea.Cmd
 		model.viewport, command = model.viewport.Update(message)
 		model.loadOlder()
 		return model, command
 	}
+	if model.switcher != nil {
+		return model, model.updateRoomSwitch(message)
+	}
 	var command tea.Cmd
 	if model.joined {
 		model.input, command = model.input.Update(message)
+	} else if model.accessKey.Focused() {
+		model.accessKey, command = model.accessKey.Update(message)
 	} else {
 		model.nickname, command = model.nickname.Update(message)
 	}
@@ -199,11 +279,20 @@ func (model *Model) applyEvent(event client.Event) {
 				clear(model.pending)
 				model.refresh(false)
 			}
+		case "unauthorized":
+			model.connected = false
+			model.joined = false
+			model.notice = event.Detail
+			model.accessKey.Reset()
+			model.nickname.Blur()
+			model.accessKey.Focus()
+			model.input.Blur()
 		case "name_taken", "invalid_name", "invalid_address":
 			model.connected = false
 			model.joined = false
 			model.notice = event.Detail
 			model.nickname.Focus()
+			model.accessKey.Blur()
 			model.input.Blur()
 		}
 		return
@@ -213,6 +302,16 @@ func (model *Model) applyEvent(event client.Event) {
 	}
 	frame := *event.Frame
 	switch frame.Type {
+	case "history_cleared":
+		model.messages = nil
+		model.issues = nil
+		clear(model.pending)
+		model.hasMore = false
+		model.loading = false
+		model.connected = true
+		model.state = "已连接"
+		model.notice = "聊天记录已由服务端清空，可以继续聊天"
+		model.refresh(false)
 	case "welcome":
 		var welcome protocol.Welcome
 		if json.Unmarshal(frame.Payload, &welcome) != nil {
@@ -220,6 +319,8 @@ func (model *Model) applyEvent(event client.Event) {
 		}
 		model.users = welcome.Users
 		if !welcome.Resumed {
+			model.issues = nil
+			clear(model.pending)
 			model.messages = nil
 			model.hasMore = false
 			model.loading = false
@@ -292,7 +393,18 @@ func (model *Model) resize() {
 		width -= 24
 	}
 	model.viewport.Width = max(10, width)
-	model.viewport.Height = max(3, model.height-9)
-	model.input.Width = max(5, model.width-6)
-	model.nickname.Width = max(5, min(36, model.width-8))
+	inputHeight := min(3, max(1, model.height-9))
+	model.input.SetHeight(inputHeight)
+	model.viewport.Height = max(1, model.height-7-inputHeight)
+	model.input.SetWidth(max(5, model.width-4))
+	loginWidth := max(1, model.width-4)
+	if !model.compactLogin() {
+		loginWidth -= 8
+	}
+	model.nickname.Width = max(1, min(36, loginWidth-3))
+	model.accessKey.Width = model.nickname.Width
+	if model.switcher != nil {
+		model.switcher.key.Width = model.nickname.Width
+		model.switcher.nickname.Width = model.nickname.Width
+	}
 }

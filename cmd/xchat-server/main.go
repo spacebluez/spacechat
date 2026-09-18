@@ -11,27 +11,43 @@ import (
 	"syscall"
 	"time"
 
+	"xchat/internal/admin"
+	"xchat/internal/securestore"
 	"xchat/internal/server"
-	"xchat/internal/store"
 )
 
 func main() {
-	address := flag.String("listen", "127.0.0.1:18080", "HTTP/WebSocket listen address")
-	databasePath := flag.String("db", "data/chat.db", "SQLite database path")
+	address := flag.String("listen", "127.0.0.1:18081", "HTTP/WebSocket listen address")
+	databasePath := flag.String("db", "data/rooms.db", "SQLite database path")
 	allowedNetworks := flag.String("allow-cidr", "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16", "Allowed client CIDRs")
+	keyPath := flag.String("encryption-key-file", "", "Required base64 32-byte database encryption key file")
+	adminSocket := flag.String("admin-socket", "", "Private administrative Unix socket path")
 	flag.Parse()
+	key, err := securestore.ReadKey(*keyPath)
+	if err != nil {
+		slog.Error("encryption key configuration", "error", err)
+		os.Exit(1)
+	}
 	if err := os.MkdirAll(filepath.Dir(*databasePath), 0750); err != nil {
 		slog.Error("database directory", "error", err)
 		os.Exit(1)
 	}
-	repository, err := store.Open(*databasePath)
+	repository, err := securestore.Open(*databasePath, key)
 	if err != nil {
 		slog.Error("open database", "error", err)
 		os.Exit(1)
 	}
 	defer repository.Close()
-	service := server.New(repository)
+	service := server.NewRooms(repository)
 	defer service.Close()
+	if *adminSocket != "" {
+		management, err := admin.Start(*adminSocket, service)
+		if err != nil {
+			slog.Error("admin socket", "error", err)
+			os.Exit(1)
+		}
+		defer management.Close()
+	}
 	handler, err := server.RestrictNetworks(service.Handler(), *allowedNetworks)
 	if err != nil {
 		slog.Error("network configuration", "error", err)

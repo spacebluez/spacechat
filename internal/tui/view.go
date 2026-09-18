@@ -53,12 +53,14 @@ func (model *Model) View() string {
 	if model.width < 24 || model.height < 10 {
 		return "请扩大终端窗口（至少 24×10）\nCtrl+C 退出"
 	}
+	if model.switcher != nil {
+		return model.roomSwitchView()
+	}
 	width := max(20, model.width-4)
 	if !model.joined {
-		content := accent.Render("XCHAT / 内网聊天室") + "\n\n" + muted.Render(ansi.Truncate(model.address, width, "…")) + "\n\n" + model.nickname.View() + "\n\n" + warning.Render(ansi.Hardwrap(model.notice, width, true)) + "\n\n" + muted.Render("Enter 进入 · Ctrl+C 退出\n公共历史可见，昵称不代表经过验证的身份")
-		return lipgloss.NewStyle().Padding(1, 1).Render(panel.Width(width).Padding(1, 1).Render(content))
+		return model.loginView()
 	}
-	header := accent.Render(" XCHAT ") + muted.Render("公共聊天室") + "  " + model.state + fmt.Sprintf(" · %d 人", len(model.users))
+	header := accent.Render(" XCHAT ") + muted.Render("口令房间") + "  " + model.state + fmt.Sprintf(" · %d 人", len(model.users))
 	if len(model.pending) > 0 {
 		header += fmt.Sprintf(" · 待确认 %d", len(model.pending))
 	}
@@ -79,7 +81,7 @@ func (model *Model) View() string {
 		sidebar := panel.Width(20).Height(model.viewport.Height).Padding(0, 1).Render(strings.Join(names, "\n"))
 		body = lipgloss.JoinHorizontal(lipgloss.Top, body, sidebar)
 	}
-	footer := muted.Render("Enter 发送 · PgUp/PgDn 翻页 · Ctrl+End 最新 · Ctrl+C 退出")
+	footer := muted.Render("F2 换房 · Enter 发送 · Shift+Enter 换行 · PgUp/PgDn 翻页 · Ctrl+End 最新 · Ctrl+C 退出")
 	notice := warning.Render(ansi.Truncate(model.notice, width, "…"))
 	return strings.Join([]string{ansi.Truncate(header, model.width, "…"), body, model.input.View(), notice, ansi.Truncate(footer, model.width, "…")}, "\n")
 }

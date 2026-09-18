@@ -15,8 +15,8 @@ func TestConcurrentSendsAreOrderedAndSlowPeerDoesNotBlock(t *testing.T) {
 	defer cancel()
 	slowContext, stopSlow := context.WithCancel(ctx)
 	defer stopSlow()
-	slow := &session{name: "slow", ctx: slowContext, cancel: stopSlow, outgoing: make(chan protocol.Frame, 1)}
-	healthy := &session{name: "healthy", ctx: ctx, cancel: cancel, outgoing: make(chan protocol.Frame, 256)}
+	slow := &session{repository: repository, name: "slow", ctx: slowContext, cancel: stopSlow, outgoing: make(chan protocol.Frame, 1)}
+	healthy := &session{repository: repository, name: "healthy", ctx: ctx, cancel: cancel, outgoing: make(chan protocol.Frame, 256)}
 	service.mu.Lock()
 	service.sessions[slow.name] = slow
 	service.sessions[healthy.name] = healthy
