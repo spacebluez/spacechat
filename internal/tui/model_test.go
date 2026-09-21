@@ -51,3 +51,49 @@ func TestNarrowScreenAndNewInstance(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestClientInfoIsUsedForInitialAndRoomSwitchConnections(t *testing.T) {
+	info := client.Info{Version: "0.4.0", OS: "linux", Arch: "amd64"}
+	model := NewWithClientInfo("ws://localhost:18080/ws", info)
+	var received []client.Info
+	model.clientFactory = func(address string, actual client.Info) *client.Client {
+		if address != model.address {
+			t.Fatalf("address = %q", address)
+		}
+		received = append(received, actual)
+		return client.NewWithInfo(address, actual)
+	}
+	model.nickname.SetValue("Alice")
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model.accessKey.SetValue("first-room")
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model.connected = true
+	model.Update(tea.KeyMsg{Type: tea.KeyF2})
+	model.switcher.key.SetValue("second-room")
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(received) != 2 || received[0] != info || received[1] != info {
+		t.Fatalf("client metadata = %+v", received)
+	}
+	model.Close()
+}
+
+func TestUpgradeRequiredQuitsBeforeHistoryIsShown(t *testing.T) {
+	model := NewWithClientInfo("ws://localhost:18080/ws", client.Info{Version: "0.3.2", OS: "linux", Arch: "amd64"})
+	model.joined = true
+	model.network = client.New(model.address)
+	cancelled := false
+	model.cancel = func() { cancelled = true }
+	_, command := model.Update(networkEvent{source: model.network, event: client.Event{State: "upgrade_required", Detail: "必须升级"}})
+	if !model.UpgradeRequired() || !cancelled {
+		t.Fatalf("upgradeRequired=%v cancelled=%v", model.UpgradeRequired(), cancelled)
+	}
+	if command == nil {
+		t.Fatal("upgrade-required event did not quit")
+	}
+	if _, ok := command().(tea.QuitMsg); !ok {
+		t.Fatal("upgrade-required command is not tea.Quit")
+	}
+	if len(model.messages) != 0 || strings.Contains(model.View(), "聊天记录") {
+		t.Fatal("history was shown after upgrade requirement")
+	}
+}

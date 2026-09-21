@@ -563,17 +563,17 @@ git commit -m "feat:新增客户端更新提示与失败回退流程"
 - Produces: `tui.NewWithClientInfo(address string, info client.Info) *Model` while preserving `tui.New(address)` for tests and compatibility.
 - Produces: `Model.UpgradeRequired() bool` so `cmd/xchat` can return to preflight after a race with a server minimum-version change.
 
-- [ ] **Step 1: Write failing config and command-mode tests**
+- [x] **Step 1: Write failing config and command-mode tests**
 
 Assert a strict JSON config with one `server` field, fallback to loopback when the managed config is missing, command-line `--server` precedence, `--version`, and hidden `--self-check` success only when version and embedded public key are valid.
 
-- [ ] **Step 2: Run command tests and verify RED**
+- [x] **Step 2: Run command tests and verify RED**
 
 Run: `go test ./internal/clientconfig ./cmd/xchat -count=1`
 
 Expected: FAIL because config and update-aware command flow do not exist.
 
-- [ ] **Step 3: Implement config and testable command runner**
+- [x] **Step 3: Implement config and testable command runner**
 
 Refactor `main` into `run(args []string, stdin io.Reader, stdout, stderr io.Writer) int`. Keep source fallbacks:
 
@@ -585,21 +585,21 @@ var updatePublicKey = ""
 
 Decode the build-injected public key from base64. Development binaries with `version == "dev"` or no public key skip online installation but still run chat with their explicit metadata. Managed release binaries run preflight before constructing the TUI.
 
-- [ ] **Step 4: Write failing TUI client-info and upgrade-race tests**
+- [x] **Step 4: Write failing TUI client-info and upgrade-race tests**
 
 Assert both initial login and F2 candidate connections receive the same `client.Info`. Feed a terminal `upgrade_required` client event and assert the Bubble Tea model quits with `UpgradeRequired() == true` without sending or showing room history.
 
-- [ ] **Step 5: Run TUI tests and verify RED**
+- [x] **Step 5: Run TUI tests and verify RED**
 
 Run: `go test ./internal/tui -run 'TestClientInfo|TestUpgradeRequired' -count=1`
 
 Expected: FAIL because TUI always calls `client.New` and has no upgrade exit state.
 
-- [ ] **Step 6: Integrate metadata and update restart loop**
+- [x] **Step 6: Integrate metadata and update restart loop**
 
 Add `clientInfo client.Info` and a small client factory to `Model`; `New` delegates to `NewWithClientInfo`. Preserve metadata when creating the room-switch candidate. On `upgrade_required`, mark the model, cancel networking, and return `tea.Quit`. In `cmd/xchat`, repeat update preflight when the model exits for this reason; all other exits retain current behavior.
 
-- [ ] **Step 7: Run command, TUI, client tests and commit**
+- [x] **Step 7: Run command, TUI, client tests and commit**
 
 Run: `go test ./cmd/xchat ./internal/clientconfig ./internal/client ./internal/tui -count=1`
 

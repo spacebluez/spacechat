@@ -22,9 +22,14 @@ type networkEvent struct {
 	source *client.Client
 	closed bool
 }
+
+type clientFactory func(address string, info client.Info) *client.Client
+
 type Model struct {
 	switcher          *roomSwitch
 	address           string
+	clientInfo        client.Info
+	clientFactory     clientFactory
 	name              string
 	nickname          textinput.Model
 	accessKey         textinput.Model
@@ -40,10 +45,19 @@ type Model struct {
 	pending           map[string]string
 	issues            []string
 	hasMore, loading  bool
+	upgradeRequired   bool
 	sequence          uint64
 }
 
 func New(address string) *Model {
+	return NewWithClientInfo(address, client.Info{})
+}
+
+func NewWithClientInfo(address string, info client.Info) *Model {
+	return newWithClientFactory(address, info, client.NewWithInfo)
+}
+
+func newWithClientFactory(address string, info client.Info, factory clientFactory) *Model {
 	nickname := textinput.New()
 	nickname.Placeholder = "输入昵称（1–20 字符）"
 	nickname.CharLimit = 20
@@ -64,11 +78,14 @@ func New(address string) *Model {
 	input.Placeholder = "输入消息，Enter 发送，Shift+Enter 换行"
 	input.CharLimit = 2000
 	input.Prompt = "> "
-	model := &Model{address: address, nickname: nickname, accessKey: keyInput, input: input, viewport: viewport.New(70, 15), width: 100, height: 26, pending: make(map[string]string), state: "未连接"}
+	model := &Model{address: address, clientInfo: info, clientFactory: factory, nickname: nickname, accessKey: keyInput, input: input, viewport: viewport.New(70, 15), width: 100, height: 26, pending: make(map[string]string), state: "未连接"}
 	model.resize()
 	return model
 }
 func (model *Model) Init() tea.Cmd { return textinput.Blink }
+func (model *Model) UpgradeRequired() bool {
+	return model.upgradeRequired
+}
 func (model *Model) Close() {
 	if model.switcher != nil && model.switcher.candidate != nil {
 		model.switcher.candidate.Close()
@@ -112,6 +129,11 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model, nil
 	case networkEvent:
 		if model.switcher != nil && model.switcher.candidate != nil && value.source == model.switcher.candidate.network {
+			if value.event.State == "upgrade_required" {
+				model.upgradeRequired = true
+				model.Close()
+				return model, tea.Quit
+			}
 			return model, model.candidateEvent(value)
 		}
 		if value.source != nil && value.source != model.network {
@@ -119,6 +141,11 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if value.closed {
 			return model, nil
+		}
+		if value.event.State == "upgrade_required" {
+			model.upgradeRequired = true
+			model.Close()
+			return model, tea.Quit
 		}
 		model.applyEvent(value.event)
 		return model, tea.Batch(waitEvent(model.network), model.continueRoomSwitch(value.event))
@@ -169,7 +196,7 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.nickname.Blur()
 				model.accessKey.Blur()
 				model.input.Focus()
-				model.network = client.New(model.address)
+				model.network = model.clientFactory(model.address, model.clientInfo)
 				ctx, cancel := context.WithCancel(context.Background())
 				model.cancel = cancel
 				network := model.network
