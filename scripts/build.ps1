@@ -1,7 +1,11 @@
 param(
     [string]$Server = "ws://127.0.0.1:18081/ws",
-    [string]$Version = "0.3.0"
+    [string]$Version = "0.4.0",
+    [string]$MinimumVersion = "0.0.0",
+    [Parameter(Mandatory = $true)]
+    [string]$SigningKey
 )
+
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 Push-Location $root
@@ -9,24 +13,72 @@ $previousOS = $env:GOOS
 $previousArch = $env:GOARCH
 $previousCGO = $env:CGO_ENABLED
 try {
-    if ($Server -notmatch '^wss?://[^\s]+$' -or $Version -notmatch '^[a-zA-Z0-9._-]+$') { throw "Invalid build arguments" }
-    New-Item -ItemType Directory -Force -Path dist/rooms-client, dist/rooms-server | Out-Null
+    if ($Server -notmatch '^wss?://[^\s"\\]+$' -or
+        $Version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' -or
+        $MinimumVersion -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+        throw "Invalid build arguments"
+    }
+    New-Item -ItemType Directory -Force -Path dist | Out-Null
+    $publicKey = (go run ./cmd/spacechat-release public-key -private-key $SigningKey).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($publicKey)) { throw "Cannot derive update public key" }
+    $clientFlags = "-s -w -X main.defaultServer=$Server -X main.version=$Version -X main.updatePublicKey=$publicKey"
+
+    $windowsLauncher = "dist/spacechat-windows-amd64.exe"
+    $linuxLauncher = "dist/spacechat-linux-amd64"
+    $windowsClient = "dist/spacechat-client-windows-amd64-$Version.exe"
+    $linuxClient = "dist/spacechat-client-linux-amd64-$Version"
+    $updateDirectory = "dist/updates-$Version"
+    $windowsPackage = "dist/spacechat-windows-amd64-$Version"
+    $linuxPackage = "dist/spacechat-linux-amd64-$Version"
+    $serverPackage = "dist/rooms-server-$Version"
+    foreach ($path in @($updateDirectory, $windowsPackage, $linuxPackage, $serverPackage)) {
+        if (Test-Path $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+    }
+
     $env:CGO_ENABLED = "0"
     $env:GOARCH = "amd64"
     $env:GOOS = "windows"
-    go build -trimpath -ldflags "-s -w -X main.defaultServer=$Server -X main.version=$Version" -o "dist/xchat-rooms-$Version.exe" ./cmd/xchat
-    if ($LASTEXITCODE -ne 0) { throw "Client build failed" }
-    Copy-Item "dist/xchat-rooms-$Version.exe" dist/rooms-client/xchat-rooms.exe -Force
-    Copy-Item README.md dist/rooms-client/README.md -Force
+    go build -trimpath -ldflags "-s -w" -o $windowsLauncher ./cmd/spacechat
+    if ($LASTEXITCODE -ne 0) { throw "Windows launcher build failed" }
+    go build -trimpath -ldflags $clientFlags -o $windowsClient ./cmd/xchat
+    if ($LASTEXITCODE -ne 0) { throw "Windows client build failed" }
+
     $env:GOOS = "linux"
-    go build -trimpath -ldflags "-s -w" -o dist/rooms-server/xchat-rooms-server-linux-amd64 ./cmd/xchat-server
+    go build -trimpath -ldflags "-s -w" -o $linuxLauncher ./cmd/spacechat
+    if ($LASTEXITCODE -ne 0) { throw "Linux launcher build failed" }
+    go build -trimpath -ldflags $clientFlags -o $linuxClient ./cmd/xchat
+    if ($LASTEXITCODE -ne 0) { throw "Linux client build failed" }
+    go build -trimpath -ldflags "-s -w" -o dist/xchat-rooms-server-linux-amd64 ./cmd/xchat-server
     if ($LASTEXITCODE -ne 0) { throw "Server build failed" }
-    Copy-Item deploy/rooms/*, deploy/clear_history.py, README.md -Destination dist/rooms-server -Force
-    Compress-Archive -Path dist/rooms-client/* -DestinationPath "dist/xchat-rooms-windows-amd64-$Version.zip" -Force
-    Compress-Archive -Path dist/rooms-server/* -DestinationPath "dist/xchat-rooms-server-linux-amd64-$Version.zip" -Force
+
+    $env:GOOS = $previousOS
+    $env:GOARCH = $previousArch
+    $env:CGO_ENABLED = $previousCGO
+    go run ./cmd/spacechat-release manifest -version $Version -minimum $MinimumVersion -private-key $SigningKey -windows $windowsClient -linux $linuxClient -out $updateDirectory
+    if ($LASTEXITCODE -ne 0) { throw "Signed manifest build failed" }
+
+    New-Item -ItemType Directory -Path $windowsPackage, $linuxPackage, $serverPackage | Out-Null
+    Copy-Item $windowsLauncher "$windowsPackage/spacechat.exe"
+    Copy-Item $windowsClient "$windowsPackage/spacechat-client.exe"
+    Copy-Item deploy/client/install.ps1 "$windowsPackage/install.ps1"
+    Copy-Item README.md "$windowsPackage/README.md"
+    Copy-Item $linuxLauncher "$linuxPackage/spacechat"
+    Copy-Item $linuxClient "$linuxPackage/spacechat-client"
+    Copy-Item deploy/client/install.sh "$linuxPackage/install.sh"
+    Copy-Item README.md "$linuxPackage/README.md"
+
+    Copy-Item dist/xchat-rooms-server-linux-amd64 $serverPackage
+    Copy-Item deploy/rooms/*, deploy/clear_history.py, README.md -Destination $serverPackage -Force
+    Copy-Item $updateDirectory "$serverPackage/updates" -Recurse
+    Set-Content -LiteralPath "$serverPackage/update-public.key" -Value $publicKey -Encoding ascii
+
+    Compress-Archive -Path "$windowsPackage/*" -DestinationPath "dist/spacechat-windows-amd64-$Version.zip" -Force
+    Compress-Archive -Path "$linuxPackage/*" -DestinationPath "dist/spacechat-linux-amd64-$Version.zip" -Force
+    Compress-Archive -Path "$serverPackage/*" -DestinationPath "dist/xchat-rooms-server-linux-amd64-$Version.zip" -Force
+    Compress-Archive -Path "$updateDirectory/*" -DestinationPath "dist/spacechat-updates-$Version.zip" -Force
     $sourcePaths = @("cmd", "internal", "scripts", "deploy", "docs", "go.mod", "go.sum", "README.md", ".gitignore", ".gitattributes")
     Compress-Archive -Path $sourcePaths -DestinationPath "dist/xchat-rooms-source-$Version.zip" -Force
-    Write-Output "Isolated rooms artifacts built in $root\dist"
+    Write-Output "Signed SpaceChat artifacts built in $root\dist"
 }
 finally {
     $env:GOOS = $previousOS
