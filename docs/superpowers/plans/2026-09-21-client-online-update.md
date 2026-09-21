@@ -686,35 +686,35 @@ git commit -m "feat:新增客户端签名发布与首次安装工具"
 - Consumes: `server.LoadUpdateCatalog` and `server.WithUpdateCatalog`.
 - Produces: server flags `-update-dir` and `-update-public-key-file`; both omitted means staged migration mode without catalog or version enforcement, both present enables them, and specifying only one is a startup error.
 
-- [ ] **Step 1: Write failing server flag tests**
+- [x] **Step 1: Write failing server flag tests**
 
 Refactor server startup parsing into a testable config function. Assert both update flags are paired, the public key file must contain one base64 32-byte Ed25519 public key, and a valid catalog is passed to `NewRooms`.
 
-- [ ] **Step 2: Run server command tests and verify RED**
+- [x] **Step 2: Run server command tests and verify RED**
 
 Run: `go test ./cmd/xchat-server -count=1`
 
 Expected: FAIL because update flags and parsing do not exist.
 
-- [ ] **Step 3: Implement server catalog wiring**
+- [x] **Step 3: Implement server catalog wiring**
 
 Add flags with empty development defaults, load and decode the regular public-key file, call `server.LoadUpdateCatalog`, and pass `server.WithUpdateCatalog(catalog)`. Log latest/minimum versions without logging manifest signatures or filesystem contents.
 
-- [ ] **Step 4: Extend failing deployment assertions**
+- [x] **Step 4: Extend failing deployment assertions**
 
 Require the installer to copy the signed update directory to `/opt/xchat-rooms/updates`, copy the public key to `/etc/xchat-rooms/update-public.key` with `0644`, reject symlinks, and add both flags to the service unit. Require an atomic `updates.new` validation/swap so a failed deployment retains the previous catalog.
 
-- [ ] **Step 5: Run deployment tests and verify RED**
+- [x] **Step 5: Run deployment tests and verify RED**
 
 Run: `python3 -m unittest deploy.test_rooms_deploy -v`
 
 Expected: FAIL until installer and unit include update assets.
 
-- [ ] **Step 6: Implement deployment and operator documentation**
+- [x] **Step 6: Implement deployment and operator documentation**
 
 Update `README.md` with first installation, `spacechat`, `--server`, optional/required update behavior, release signing, minimum-version rollout, failure recovery, and rollback instructions. Keep all example addresses non-production placeholders.
 
-- [ ] **Step 7: Run server/deployment tests and commit**
+- [x] **Step 7: Run server/deployment tests and commit**
 
 Run: `go test ./cmd/xchat-server ./internal/server -count=1 && python3 -m unittest deploy.test_rooms_deploy -v`
 
