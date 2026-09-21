@@ -93,7 +93,7 @@ func (model *Model) submitRoomSwitch() tea.Cmd {
 	dialog.waiting = false
 	dialog.confirm = false
 	dialog.notice = "正在进入目标房间…"
-	target := New(model.address)
+	target := newWithClientFactory(model.address, model.clientInfo, model.clientFactory)
 	target.width, target.height = model.width, model.height
 	target.resize()
 	target.name = name
@@ -102,7 +102,7 @@ func (model *Model) submitRoomSwitch() tea.Cmd {
 	target.accessKey.SetValue(key)
 	target.joined = true
 	target.state = "连接中"
-	target.network = client.New(model.address)
+	target.network = target.clientFactory(model.address, target.clientInfo)
 	ctx, cancel := context.WithCancel(context.Background())
 	target.cancel = cancel
 	dialog.candidate = target
