@@ -321,19 +321,19 @@ git commit -m "feat:服务端强制校验客户端兼容版本"
 - Consumes: strict `update.Version` from Task 1.
 - Produces: `update.LayoutFor(goos, home string, getenv func(string) string) (Layout, error)`.
 - Produces: `Layout.ClientPath(version Version, goos string) (string, error)`, `ReadCurrent(Layout)`, and `WriteCurrent(Layout, Version)`.
-- Produces: `launcher.Run(layout update.Layout, args []string, streams Streams, runner CommandRunner) error`.
+- Produces: `launcher.Run(layout update.Layout, goos string, args []string, streams Streams, runner CommandRunner) error`.
 
-- [ ] **Step 1: Write failing cross-platform layout and atomic-pointer tests**
+- [x] **Step 1: Write failing cross-platform layout and atomic-pointer tests**
 
 Assert the exact Windows and Linux paths from the spec, rejection of an invalid `current`, and replacement of `current` without a partially written value. Include a test that `ClientPath` cannot escape `versions`.
 
-- [ ] **Step 2: Run layout tests and verify RED**
+- [x] **Step 2: Run layout tests and verify RED**
 
 Run: `go test ./internal/update -run 'TestLayout|TestCurrent' -count=1`
 
 Expected: FAIL because layout functions do not exist.
 
-- [ ] **Step 3: Implement layout and atomic current writes**
+- [x] **Step 3: Implement layout and atomic current writes**
 
 ```go
 type Layout struct {
@@ -348,27 +348,27 @@ func (layout Layout) ClientPath(version Version, goos string) (string, error) {
 
 Write `current.new` with mode `0600`, close and rename it in the same directory; create parent directories with `0700` on Unix-compatible filesystems.
 
-- [ ] **Step 4: Write failing launcher tests**
+- [x] **Step 4: Write failing launcher tests**
 
 Create a fake executable in the managed version directory and inject a command runner. Assert argument, stdin, stdout, stderr, working directory, and exit-code forwarding. Assert missing or non-regular managed clients fail without executing anything.
 
-- [ ] **Step 5: Run launcher tests and verify RED**
+- [x] **Step 5: Run launcher tests and verify RED**
 
 Run: `go test ./internal/launcher ./cmd/spacechat -count=1`
 
 Expected: FAIL because the launcher does not exist.
 
-- [ ] **Step 6: Implement the network-free launcher**
+- [x] **Step 6: Implement the network-free launcher**
 
 ```go
 type Streams struct { Stdin io.Reader; Stdout, Stderr io.Writer }
 type CommandRunner func(path string, args []string, streams Streams) error
-func Run(layout update.Layout, args []string, streams Streams, runner CommandRunner) error
+func Run(layout update.Layout, goos string, args []string, streams Streams, runner CommandRunner) error
 ```
 
 The production runner uses `exec.Command`, attaches `os.Stdin`, `os.Stdout`, and `os.Stderr`, and returns the child's exit status. `cmd/spacechat/main.go` resolves the current user's layout and passes `os.Args[1:]` unchanged.
 
-- [ ] **Step 7: Run launcher tests and commit**
+- [x] **Step 7: Run launcher tests and commit**
 
 Run: `go test ./internal/update ./internal/launcher ./cmd/spacechat -count=1`
 
