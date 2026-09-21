@@ -236,7 +236,7 @@ git commit -m "feat:服务端下发签名更新清单与客户端制品"
 - Produces: `protocol.Failure.MinimumVersion` for `upgrade_required` responses.
 - Produces: `client.Info{Version, OS, Arch string}` and `client.NewWithInfo(address string, info Info) *Client`.
 
-- [ ] **Step 1: Write failing direct-join compatibility tests**
+- [x] **Step 1: Write failing direct-join compatibility tests**
 
 ```go
 failure := service.join(makeSession(), protocol.Join{
@@ -247,13 +247,13 @@ if failure.Code != "upgrade_required" || failure.MinimumVersion != "0.3.2" { t.F
 
 Cover missing and malformed versions, unsupported platform, exact minimum, latest, and newer-than-latest. Verify minimum `0.0.0` permits a missing version for staged migration.
 
-- [ ] **Step 2: Run server compatibility tests and verify RED**
+- [x] **Step 2: Run server compatibility tests and verify RED**
 
 Run: `go test ./internal/server -run 'TestClientVersion' -count=1`
 
 Expected: FAIL because join metadata and enforcement are absent.
 
-- [ ] **Step 3: Add protocol fields and enforce before room access**
+- [x] **Step 3: Add protocol fields and enforce before room access**
 
 ```go
 type Join struct {
@@ -274,17 +274,17 @@ type Failure struct {
 
 Call a focused `service.checkClient(join)` before access-key validation and storage access. Treat only `windows/amd64` and `linux/amd64` as supported when enforcement is enabled.
 
-- [ ] **Step 4: Write failing client metadata and terminal-error tests**
+- [x] **Step 4: Write failing client metadata and terminal-error tests**
 
 Use an `httptest` WebSocket server to capture the first join frame and return `upgrade_required`. Assert `NewWithInfo` sends all three fields and `Run` emits one terminal event with `State == "upgrade_required"` and does not retry.
 
-- [ ] **Step 5: Run client tests and verify RED**
+- [x] **Step 5: Run client tests and verify RED**
 
 Run: `go test ./internal/client -run 'TestClientVersion|TestUpgradeRequired' -count=1`
 
 Expected: FAIL because client metadata is not represented.
 
-- [ ] **Step 6: Implement client metadata with backward-compatible constructor**
+- [x] **Step 6: Implement client metadata with backward-compatible constructor**
 
 ```go
 type Info struct { Version, OS, Arch string }
@@ -296,7 +296,7 @@ func NewWithInfo(address string, info Info) *Client {
 
 Populate the join frame from `Client.info`; classify `upgrade_required` and `unsupported_client` with the existing non-retry terminal join errors.
 
-- [ ] **Step 7: Run protocol, server, and client tests and commit**
+- [x] **Step 7: Run protocol, server, and client tests and commit**
 
 Run: `go test ./internal/protocol ./internal/server ./internal/client -count=1`
 

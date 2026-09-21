@@ -25,8 +25,14 @@ type link struct {
 	outgoing chan protocol.Frame
 	ready    bool
 }
+type Info struct {
+	Version string
+	OS      string
+	Arch    string
+}
 type Client struct {
 	address       string
+	info          Info
 	events        chan Event
 	mu            sync.Mutex
 	active        *link
@@ -37,7 +43,10 @@ type Client struct {
 }
 
 func New(address string) *Client {
-	return &Client{address: address, events: make(chan Event, 128), retryMin: time.Second}
+	return NewWithInfo(address, Info{})
+}
+func NewWithInfo(address string, info Info) *Client {
+	return &Client{address: address, info: info, events: make(chan Event, 128), retryMin: time.Second}
 }
 func ValidateAddress(address string) error {
 	parsed, err := url.Parse(address)
@@ -96,7 +105,7 @@ func (network *Client) Run(ctx context.Context, name, key string) {
 			return
 		}
 		var refusal *joinError
-		if errors.As(err, &refusal) && (refusal.code == "unauthorized" || refusal.code == "invalid_name" || (refusal.code == "name_taken" && !network.everConnected)) {
+		if errors.As(err, &refusal) && (refusal.code == "unauthorized" || refusal.code == "invalid_name" || refusal.code == "upgrade_required" || refusal.code == "unsupported_client" || (refusal.code == "name_taken" && !network.everConnected)) {
 			network.emit(ctx, Event{State: refusal.code, Detail: refusal.message})
 			return
 		}
@@ -139,7 +148,15 @@ func (network *Client) connect(parent context.Context, name, key string) error {
 	defer connection.CloseNow()
 	connection.SetReadLimit(2 * 1024 * 1024)
 	writeContext, writeCancel := context.WithTimeout(ctx, 10*time.Second)
-	err = wsjson.Write(writeContext, connection, protocol.Encode("join", "join", protocol.Join{Nickname: name, AccessKey: key, InstanceID: network.instance, AfterID: network.cursor}))
+	err = wsjson.Write(writeContext, connection, protocol.Encode("join", "join", protocol.Join{
+		Nickname:      name,
+		AccessKey:     key,
+		InstanceID:    network.instance,
+		AfterID:       network.cursor,
+		ClientVersion: network.info.Version,
+		ClientOS:      network.info.OS,
+		ClientArch:    network.info.Arch,
+	}))
 	writeCancel()
 	if err != nil {
 		return err
