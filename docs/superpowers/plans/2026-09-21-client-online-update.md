@@ -478,17 +478,17 @@ git commit -m "feat:实现客户端安全下载与事务更新"
 - Produces: `Runner.Run(ctx, Request) (Outcome, error)` where outcomes are `Continue`, `Relaunched`, and `Exit`.
 - Produces: `updateui.New(in io.Reader, out io.Writer) *Console` implementing `update.UI`.
 
-- [ ] **Step 1: Write failing prompt tests**
+- [x] **Step 1: Write failing prompt tests**
 
 Feed `u`, `s`, `r`, and `e` through a buffered reader. Assert optional prompts accept only Update/Skip, required prompts accept only Update/Exit, required retry prompts accept only Retry/Exit, invalid input repeats, and progress output never divides by zero.
 
-- [ ] **Step 2: Run prompt tests and verify RED**
+- [x] **Step 2: Run prompt tests and verify RED**
 
 Run: `go test ./internal/updateui -count=1`
 
 Expected: FAIL because update UI does not exist.
 
-- [ ] **Step 3: Implement line-oriented pre-TUI interaction**
+- [x] **Step 3: Implement line-oriented pre-TUI interaction**
 
 ```go
 type Action uint8
@@ -508,25 +508,25 @@ type UI interface {
 
 Keep these types in `internal/update/runner.go`. Implement `updateui.Console.Choose(update.Prompt) update.Action` plus the progress and error methods. Render concise Chinese text before Bubble Tea starts. Flush progress by rewriting one line when attached to a terminal and by emitting bounded milestone lines for buffered/non-terminal tests.
 
-- [ ] **Step 4: Write failing runner policy tests**
+- [x] **Step 4: Write failing runner policy tests**
 
 Inject fake remote, installer, UI, and launcher functions. Cover current/ahead continuation, optional skip, optional install failure continuation, required exit, required failure retry, required failure exit, successful install and relaunch, check timeout continuation, and signature error continuation without executing content.
 
-- [ ] **Step 5: Run runner tests and verify RED**
+- [x] **Step 5: Run runner tests and verify RED**
 
 Run: `go test ./internal/update -run TestRunner -count=1`
 
 Expected: FAIL because orchestration does not exist.
 
-- [ ] **Step 6: Implement policy runner**
+- [x] **Step 6: Implement policy runner**
 
 ```go
 type Outcome uint8
 const (Continue Outcome = iota; Relaunched; Exit)
 type Request struct { Server string; Current Version; GOOS, GOARCH string; Args []string }
 type Runner struct {
-    Remote Remote
-    Installer Installer
+    Checker Checker
+    Installer Installing
     UI UI
     Launch func(path string, args []string) error
 }
@@ -534,7 +534,7 @@ type Runner struct {
 
 Loop only for a required update after `ActionRetry`; optional failures return `Continue`. A successful install starts the returned managed client with the original arguments and returns `Relaunched` so the old process exits before starting Bubble Tea. If process start fails, call `Installer.Rollback(result)` before applying the optional/required failure policy.
 
-- [ ] **Step 7: Run update and UI tests and commit**
+- [x] **Step 7: Run update and UI tests and commit**
 
 Run: `go test ./internal/update ./internal/updateui -count=1`
 
