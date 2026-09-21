@@ -16,10 +16,19 @@ type Room struct {
 type content struct {
 	Nickname string
 	Body     string
+	OwnerID  string   `json:",omitempty"`
+	Mentions []string `json:",omitempty"`
+	Recalled bool     `json:",omitempty"`
 }
 
-func (room *Room) ID() string         { return room.id }
-func (room *Room) InstanceID() string { return room.store.instance.Load().(string) + ":" + room.id }
+func (room *Room) ID() string { return room.id }
+func (room *Room) InstanceID() string {
+	instance := room.store.instance.Load().(string) + ":" + room.id
+	if epoch, ok := room.store.epochs.Load(room.id); ok {
+		instance += ":" + epoch.(string)
+	}
+	return instance
+}
 func (room *Room) LatestID() (int64, error) {
 	var latest int64
 	err := room.store.database.QueryRow("SELECT COALESCE(MAX(id),0) FROM messages WHERE room_id=?", room.id).Scan(&latest)
@@ -30,8 +39,11 @@ func (room *Room) aad(message protocol.Message) []byte {
 	return []byte(fmt.Sprintf("xchat-message/v1/%s/%d/%s", room.id, message.ID, message.CreatedAt))
 }
 func (room *Room) Append(name, body string) (protocol.Message, error) {
-	message := protocol.Message{Nickname: name, Body: body, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	plaintext, err := json.Marshal(content{Nickname: name, Body: body})
+	return room.AppendChat(name, body, "", nil)
+}
+func (room *Room) AppendChat(name, body, owner string, mentions []string) (protocol.Message, error) {
+	message := protocol.Message{Nickname: name, Body: body, OwnerID: owner, Mentions: mentions, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	plaintext, err := json.Marshal(content{Nickname: name, Body: body, OwnerID: owner, Mentions: mentions})
 	if err != nil {
 		return message, err
 	}
@@ -94,6 +106,7 @@ func (room *Room) Page(before, after, through int64) (protocol.Page, error) {
 			return protocol.Page{}, err
 		}
 		message.Nickname, message.Body = decoded.Nickname, decoded.Body
+		message.OwnerID, message.Mentions, message.Recalled = decoded.OwnerID, decoded.Mentions, decoded.Recalled
 		page.Messages = append(page.Messages, message)
 	}
 	if err = rows.Err(); err != nil {

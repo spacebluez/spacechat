@@ -110,7 +110,39 @@ func TestLegacyConsoleLogin(t *testing.T) {
 	}
 }
 
+type consoleKeyRecord struct {
+	eventType uint16
+	padding   uint16
+	down      int32
+	repeat    uint16
+	key       uint16
+	scan      uint16
+	character uint16
+	state     uint32
+}
+
 func sendConsoleText(t *testing.T, processID uint32, text string) {
+	t.Helper()
+	var records []consoleKeyRecord
+	for _, character := range utf16.Encode([]rune(text)) {
+		record := consoleKeyRecord{eventType: 1, down: 1, repeat: 1, character: character}
+		if character == '\r' {
+			record.key = 13
+		}
+		if character == '\t' {
+			record.key = 9
+		}
+		records = append(records, record)
+	}
+	writeConsoleRecords(t, processID, records)
+}
+
+func sendConsoleKey(t *testing.T, processID uint32, key, character uint16, state uint32) {
+	t.Helper()
+	writeConsoleRecords(t, processID, []consoleKeyRecord{{eventType: 1, down: 1, repeat: 1, key: key, character: character, state: state}})
+}
+
+func writeConsoleRecords(t *testing.T, processID uint32, records []consoleKeyRecord) {
 	t.Helper()
 	kernel := windows.NewLazySystemDLL("kernel32.dll")
 	free := kernel.NewProc("FreeConsole")
@@ -126,27 +158,6 @@ func sendConsoleText(t *testing.T, processID uint32, text string) {
 		t.Fatal(err)
 	}
 	defer input.Close()
-	type keyRecord struct {
-		eventType uint16
-		padding   uint16
-		down      int32
-		repeat    uint16
-		key       uint16
-		scan      uint16
-		character uint16
-		state     uint32
-	}
-	var records []keyRecord
-	for _, character := range utf16.Encode([]rune(text)) {
-		record := keyRecord{eventType: 1, down: 1, repeat: 1, character: character}
-		if character == '\r' {
-			record.key = 13
-		}
-		if character == '\t' {
-			record.key = 9
-		}
-		records = append(records, record)
-	}
 	var written uint32
 	result, _, err = kernel.NewProc("WriteConsoleInputW").Call(input.Fd(), uintptr(unsafe.Pointer(&records[0])), uintptr(len(records)), uintptr(unsafe.Pointer(&written)))
 	if result == 0 || int(written) != len(records) {

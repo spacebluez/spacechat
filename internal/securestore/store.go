@@ -9,6 +9,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"strings"
+	"sync"
 	"sync/atomic"
 
 	_ "modernc.org/sqlite"
@@ -16,10 +18,12 @@ import (
 )
 
 type Store struct {
-	database *sql.DB
-	cipher   cipher.AEAD
-	roomKey  []byte
-	instance atomic.Value
+	database  *sql.DB
+	cipher    cipher.AEAD
+	roomKey   []byte
+	instance  atomic.Value
+	epochs    sync.Map
+	mutations sync.Mutex
 }
 
 func derive(master []byte, purpose string) []byte {
@@ -106,6 +110,21 @@ func Open(path string, key []byte) (*Store, error) {
 		return nil, err
 	}
 	repository.instance.Store(instance)
+	rows, err := database.Query("SELECT key,value FROM metadata WHERE key LIKE 'recall_epoch/%'")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name, epoch string
+		if err := rows.Scan(&name, &epoch); err != nil {
+			return nil, err
+		}
+		repository.epochs.Store(strings.TrimPrefix(name, "recall_epoch/"), epoch)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	success = true
 	return repository, nil
 }
@@ -125,6 +144,8 @@ func (repository *Store) Room(passphrase string) (*Room, error) {
 	return room, nil
 }
 func (repository *Store) ClearAll() (int64, error) {
+	repository.mutations.Lock()
+	defer repository.mutations.Unlock()
 	transaction, err := repository.database.Begin()
 	if err != nil {
 		return 0, err
@@ -141,6 +162,9 @@ func (repository *Store) ClearAll() (int64, error) {
 	if _, err = transaction.Exec("DELETE FROM rooms"); err != nil {
 		return 0, err
 	}
+	if _, err = transaction.Exec("DELETE FROM metadata WHERE key LIKE 'recall_epoch/%'"); err != nil {
+		return 0, err
+	}
 	instance := rand.Text()
 	if _, err = transaction.Exec("UPDATE metadata SET value=? WHERE key='instance_id'", instance); err != nil {
 		return 0, err
@@ -149,5 +173,6 @@ func (repository *Store) ClearAll() (int64, error) {
 		return 0, err
 	}
 	repository.instance.Store(instance)
+	repository.epochs.Clear()
 	return deleted, nil
 }

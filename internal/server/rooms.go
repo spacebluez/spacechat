@@ -1,13 +1,11 @@
 package server
 
-import (
-	"context"
-	"xchat/internal/securestore"
-)
+import "xchat/internal/securestore"
 
 func NewRooms(repository *securestore.Store) *Server {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &Server{rooms: repository, sessions: make(map[string]*session), ctx: ctx, cancel: cancel}
+	service := New(nil, "")
+	service.rooms = repository
+	return service
 }
 
 func (client *session) sessionKey() string {
