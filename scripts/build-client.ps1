@@ -28,9 +28,10 @@ try {
     $windowsClient = "dist/spacechat-client-windows-amd64-$Version.exe"
     $linuxClient = "dist/spacechat-client-linux-amd64-$Version"
     $updateDirectory = "dist/updates-$Version"
+    $installerDirectory = "dist/installers-$Version"
     $windowsPackage = "dist/spacechat-windows-amd64-$Version"
     $linuxPackage = "dist/spacechat-linux-amd64-$Version"
-    foreach ($path in @($updateDirectory, $windowsPackage, $linuxPackage)) {
+    foreach ($path in @($updateDirectory, $installerDirectory, $windowsPackage, $linuxPackage)) {
         if (Test-Path $path) { Remove-Item -LiteralPath $path -Recurse -Force }
     }
 
@@ -64,9 +65,15 @@ try {
     Copy-Item deploy/client/install.sh "$linuxPackage/install.sh"
     Copy-Item README.md "$linuxPackage/README.md"
 
-    Compress-Archive -Path "$windowsPackage/*" -DestinationPath "dist/spacechat-windows-amd64-$Version.zip" -Force
-    Compress-Archive -Path "$linuxPackage/*" -DestinationPath "dist/spacechat-linux-amd64-$Version.zip" -Force
+    $windowsArchive = "dist/spacechat-windows-amd64-$Version.zip"
+    $linuxArchive = "dist/spacechat-linux-amd64-$Version.zip"
+    Compress-Archive -Path "$windowsPackage/*" -DestinationPath $windowsArchive -Force
+    Compress-Archive -Path "$linuxPackage/*" -DestinationPath $linuxArchive -Force
+    go run ./cmd/spacechat-release installers -version $Version -server $Server -private-key $SigningKey -windows-package $windowsArchive -linux-package $linuxArchive -out $installerDirectory
+    if ($LASTEXITCODE -ne 0) { throw "Signed installer catalog build failed" }
+
     Compress-Archive -Path "$updateDirectory/*" -DestinationPath "dist/spacechat-updates-$Version.zip" -Force
+    Compress-Archive -Path "$installerDirectory/*" -DestinationPath "dist/spacechat-installers-$Version.zip" -Force
     $sourcePaths = @("cmd", "internal", "scripts", "deploy", "docs", "go.mod", "go.sum", "README.md", ".gitignore", ".gitattributes")
     Compress-Archive -Path $sourcePaths -DestinationPath "dist/xchat-rooms-source-$Version.zip" -Force
     Write-Output "Signed client release built: $Version"

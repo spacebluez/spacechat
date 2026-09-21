@@ -195,9 +195,82 @@ func createManifest(versionText, minimumText, keyPath, windowsPath, linuxPath, o
 	return nil
 }
 
+func createInstallerCatalog(versionText, server, keyPath, windowsPath, linuxPath, outputPath string) (resultError error) {
+	version, err := update.ParseVersion(versionText)
+	if err != nil {
+		return fmt.Errorf("invalid installer version: %w", err)
+	}
+	privateKey, err := readPrivateKey(keyPath)
+	if err != nil {
+		return fmt.Errorf("read private key: %w", err)
+	}
+	if outputPath == "" || filepath.Base(filepath.Clean(outputPath)) == "." {
+		return errors.New("output directory is required")
+	}
+	if _, err = os.Lstat(outputPath); !errors.Is(err, os.ErrNotExist) {
+		if err == nil {
+			return errors.New("output directory already exists")
+		}
+		return err
+	}
+	parent := filepath.Dir(filepath.Clean(outputPath))
+	parentInfo, err := os.Lstat(parent)
+	if err != nil || !parentInfo.IsDir() || parentInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.New("output parent must be an existing real directory")
+	}
+	temporary, err := os.MkdirTemp(parent, "."+filepath.Base(outputPath)+"-")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if temporary != "" {
+			os.RemoveAll(temporary)
+		}
+	}()
+	windowsName := "spacechat-windows-amd64-" + version.String() + ".zip"
+	linuxName := "spacechat-linux-amd64-" + version.String() + ".zip"
+	windowsPackage, err := copyArtifact(windowsPath, filepath.Join(temporary, windowsName))
+	if err != nil {
+		return fmt.Errorf("copy Windows installer package: %w", err)
+	}
+	linuxPackage, err := copyArtifact(linuxPath, filepath.Join(temporary, linuxName))
+	if err != nil {
+		return fmt.Errorf("copy Linux installer package: %w", err)
+	}
+	manifest := update.InstallerManifest{
+		Schema:  1,
+		Version: version.String(),
+		Server:  server,
+		Packages: map[string]update.Artifact{
+			"windows-amd64": windowsPackage,
+			"linux-amd64":   linuxPackage,
+		},
+	}
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	signature := ed25519.Sign(privateKey, raw)
+	if _, err = update.VerifyInstallerManifest(raw, signature, privateKey.Public().(ed25519.PublicKey)); err != nil {
+		return fmt.Errorf("verify generated installer manifest: %w", err)
+	}
+	if err = writeExclusive(filepath.Join(temporary, "installers.json"), raw, 0644); err != nil {
+		return err
+	}
+	if err = writeExclusive(filepath.Join(temporary, "installers.sig"), signature, 0644); err != nil {
+		return err
+	}
+	if err = os.Rename(temporary, outputPath); err != nil {
+		return err
+	}
+	temporary = ""
+	return nil
+}
+
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "spacechat-release: expected public-key or manifest")
+		fmt.Fprintln(stderr, "spacechat-release: expected public-key, manifest, or installers")
 		return 2
 	}
 	switch args[0] {
@@ -235,6 +308,27 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		if err := createManifest(*version, *minimum, *keyPath, *windowsPath, *linuxPath, *outputPath); err != nil {
+			fmt.Fprintln(stderr, "spacechat-release:", err)
+			return 1
+		}
+		return 0
+	case "installers":
+		set := flag.NewFlagSet("installers", flag.ContinueOnError)
+		set.SetOutput(stderr)
+		version := set.String("version", "", "release version")
+		server := set.String("server", "", "WebSocket server address")
+		keyPath := set.String("private-key", "", "base64 private key file")
+		windowsPath := set.String("windows-package", "", "Windows amd64 installer package")
+		linuxPath := set.String("linux-package", "", "Linux amd64 installer package")
+		outputPath := set.String("out", "", "output directory")
+		if err := set.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if set.NArg() != 0 || *version == "" || *server == "" || *keyPath == "" || *windowsPath == "" || *linuxPath == "" || *outputPath == "" {
+			fmt.Fprintln(stderr, "spacechat-release: installers requires -version, -server, -private-key, -windows-package, -linux-package, and -out")
+			return 2
+		}
+		if err := createInstallerCatalog(*version, *server, *keyPath, *windowsPath, *linuxPath, *outputPath); err != nil {
 			fmt.Fprintln(stderr, "spacechat-release:", err)
 			return 1
 		}

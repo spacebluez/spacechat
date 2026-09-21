@@ -28,6 +28,7 @@ type serverConfig struct {
 	encryptionKeyFile   string
 	adminSocket         string
 	updateDirectory     string
+	installerDirectory  string
 	updatePublicKeyFile string
 	validateUpdates     bool
 }
@@ -42,6 +43,7 @@ func parseConfig(args []string) (serverConfig, error) {
 	set.StringVar(&config.encryptionKeyFile, "encryption-key-file", "", "Required base64 32-byte database encryption key file")
 	set.StringVar(&config.adminSocket, "admin-socket", "", "Private administrative Unix socket path")
 	set.StringVar(&config.updateDirectory, "update-dir", "", "Verified client update directory")
+	set.StringVar(&config.installerDirectory, "installer-dir", "", "Verified initial installer directory")
 	set.StringVar(&config.updatePublicKeyFile, "update-public-key-file", "", "Base64 Ed25519 update public key file")
 	set.BoolVar(&config.validateUpdates, "validate-updates", false, "Validate update catalog and exit")
 	if err := set.Parse(args); err != nil {
@@ -53,10 +55,31 @@ func parseConfig(args []string) (serverConfig, error) {
 	if (config.updateDirectory == "") != (config.updatePublicKeyFile == "") {
 		return serverConfig{}, errors.New("-update-dir and -update-public-key-file must be configured together")
 	}
+	if config.installerDirectory != "" && config.updatePublicKeyFile == "" {
+		return serverConfig{}, errors.New("-installer-dir requires -update-dir and -update-public-key-file")
+	}
 	if config.validateUpdates && config.updateDirectory == "" {
 		return serverConfig{}, errors.New("-validate-updates requires an update directory and public key")
 	}
 	return config, nil
+}
+
+func loadInstallerOptions(config serverConfig) ([]server.RoomsOption, *server.InstallerCatalog, error) {
+	if config.installerDirectory == "" {
+		return nil, nil, nil
+	}
+	if config.updatePublicKeyFile == "" {
+		return nil, nil, errors.New("installer directory requires an update public key file")
+	}
+	publicKey, err := readUpdatePublicKey(config.updatePublicKeyFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("installer public key: %w", err)
+	}
+	catalog, err := server.LoadInstallerCatalog(config.installerDirectory, publicKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("installer catalog: %w", err)
+	}
+	return []server.RoomsOption{server.WithInstallerCatalog(catalog)}, catalog, nil
 }
 
 func readUpdatePublicKey(path string) (ed25519.PublicKey, error) {
@@ -117,6 +140,16 @@ func main() {
 	if catalog != nil {
 		manifest := catalog.Manifest()
 		slog.Info("client updates enabled", "latest", manifest.LatestVersion, "minimum", manifest.MinimumSupportedVersion)
+	}
+	installerOptions, installerCatalog, err := loadInstallerOptions(config)
+	if err != nil {
+		slog.Error("client installer configuration", "error", err)
+		os.Exit(1)
+	}
+	options = append(options, installerOptions...)
+	if installerCatalog != nil {
+		manifest := installerCatalog.Manifest()
+		slog.Info("client installers enabled", "version", manifest.Version)
 	}
 	if config.validateUpdates {
 		return

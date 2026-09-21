@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"xchat/internal/server"
@@ -23,16 +24,17 @@ func TestParseConfigRequiresPairedUpdateFlags(t *testing.T) {
 	for _, args := range [][]string{
 		{"-update-dir", "/updates"},
 		{"-update-public-key-file", "/key"},
+		{"-installer-dir", "/installers"},
 	} {
 		if _, err := parseConfig(args); err == nil {
 			t.Fatalf("unpaired update flags accepted: %v", args)
 		}
 	}
-	config, err := parseConfig([]string{"-update-dir", "/updates", "-update-public-key-file", "/key"})
+	config, err := parseConfig([]string{"-update-dir", "/updates", "-update-public-key-file", "/key", "-installer-dir", "/installers"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.updateDirectory != "/updates" || config.updatePublicKeyFile != "/key" {
+	if config.updateDirectory != "/updates" || config.updatePublicKeyFile != "/key" || config.installerDirectory != "/installers" {
 		t.Fatalf("update config = %+v", config)
 	}
 	config, err = parseConfig([]string{"-validate-updates", "-update-dir", "/updates", "-update-public-key-file", "/key"})
@@ -41,6 +43,55 @@ func TestParseConfigRequiresPairedUpdateFlags(t *testing.T) {
 	}
 	if _, err = parseConfig([]string{"-validate-updates"}); err == nil {
 		t.Fatal("update validation without a catalog was accepted")
+	}
+}
+
+func makeInstallerFixture(t *testing.T) (string, string) {
+	t.Helper()
+	directory := t.TempDir()
+	windows, linux := []byte("windows package"), []byte("linux package")
+	digest := func(data []byte) string {
+		hash := sha256.Sum256(data)
+		return hex.EncodeToString(hash[:])
+	}
+	raw := []byte(fmt.Sprintf(`{"schema":1,"version":"0.4.0","server":"ws://chat.invalid/ws","packages":{"linux-amd64":{"file":"spacechat-linux-amd64-0.4.0.zip","size":%d,"sha256":"%s"},"windows-amd64":{"file":"spacechat-windows-amd64-0.4.0.zip","size":%d,"sha256":"%s"}}}`,
+		len(linux), digest(linux), len(windows), digest(windows)))
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		"installers.json":                   raw,
+		"installers.sig":                    ed25519.Sign(privateKey, raw),
+		"spacechat-windows-amd64-0.4.0.zip": windows,
+		"spacechat-linux-amd64-0.4.0.zip":   linux,
+	} {
+		if err = os.WriteFile(filepath.Join(directory, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keyPath := filepath.Join(t.TempDir(), "update-public.key")
+	if err = os.WriteFile(keyPath, []byte(base64.StdEncoding.EncodeToString(publicKey)+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return directory, keyPath
+}
+
+func TestLoadInstallerOptionsWiresBootstrapRoutes(t *testing.T) {
+	directory, keyPath := makeInstallerFixture(t)
+	options, catalog, err := loadInstallerOptions(serverConfig{installerDirectory: directory, updatePublicKeyFile: keyPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog == nil || catalog.Manifest().Version != "0.4.0" || len(options) != 1 {
+		t.Fatalf("catalog=%+v options=%d", catalog, len(options))
+	}
+	service := server.NewRooms(nil, options...)
+	defer service.Close()
+	recorder := httptest.NewRecorder()
+	service.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://chat.invalid/install/linux", nil))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "spacechat-linux-amd64-0.4.0.zip") {
+		t.Fatalf("bootstrap response = %d %q", recorder.Code, recorder.Body.String())
 	}
 }
 

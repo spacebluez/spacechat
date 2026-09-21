@@ -132,6 +132,36 @@ class ClientInstallerTests(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertFalse((temporary / "data" / "spacechat" / "current").exists())
 
+    def test_linux_installer_updates_existing_bash_login_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary = pathlib.Path(temporary)
+            package = temporary / "package"
+            home = temporary / "home"
+            package.mkdir()
+            home.mkdir()
+            (package / "spacechat").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            (package / "spacechat-client").write_text(
+                '#!/bin/sh\ncase "$1" in --version) echo "spacechat 1.2.3" ;; --self-check) exit 0 ;; *) exit 1 ;; esac\n',
+                encoding="utf-8",
+            )
+            (package / "spacechat").chmod(0o755)
+            (package / "spacechat-client").chmod(0o755)
+            bash_profile = home / ".bash_profile"
+            bash_profile.write_text("export EXISTING=value\n", encoding="utf-8")
+            environment = os.environ.copy()
+            environment.update({"HOME": str(home), "XDG_CONFIG_HOME": str(temporary / "config"), "XDG_DATA_HOME": str(temporary / "data")})
+            result = subprocess.run(
+                ["sh", str(ROOT / "deploy" / "client" / "install.sh"), "ws://chat.invalid/ws", "1.2.3", str(package)],
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("export EXISTING=value", bash_profile.read_text(encoding="utf-8"))
+            self.assertIn('export PATH="$HOME/.local/bin:$PATH"', bash_profile.read_text(encoding="utf-8"))
+
 
 class ClientBuildScriptTests(unittest.TestCase):
     def test_builds_require_signing_and_emit_both_platforms(self):
@@ -146,6 +176,8 @@ class ClientBuildScriptTests(unittest.TestCase):
             self.assertIn("spacechat-client-windows-amd64", source)
             self.assertIn("spacechat-client-linux-amd64", source)
             self.assertIn("spacechat-release manifest", source)
+            self.assertIn("spacechat-release installers", source)
+            self.assertIn("installers-$Version", source)
 
 
 if __name__ == "__main__":

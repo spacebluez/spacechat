@@ -138,3 +138,56 @@ func TestManifestFailuresLeaveNoOutputDirectory(t *testing.T) {
 		})
 	}
 }
+
+func TestInstallerCatalogProducesSignedExactPackages(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	windowsPath := filepath.Join(directory, "windows.zip")
+	linuxPath := filepath.Join(directory, "linux.zip")
+	windowsContents := []byte("windows installer package")
+	linuxContents := []byte("linux installer package")
+	if err = os.WriteFile(windowsPath, windowsContents, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(linuxPath, linuxContents, 0600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(directory, "installers-0.4.0")
+	stderr := new(bytes.Buffer)
+	code := run([]string{
+		"installers", "-version", "0.4.0", "-server", "ws://192.168.33.216:18081/ws",
+		"-private-key", writePrivateKey(t, privateKey),
+		"-windows-package", windowsPath, "-linux-package", linuxPath, "-out", out,
+	}, new(bytes.Buffer), stderr)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "installers.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature, err := os.ReadFile(filepath.Join(out, "installers.sig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := update.VerifyInstallerManifest(raw, signature, publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Version != "0.4.0" || manifest.Server != "ws://192.168.33.216:18081/ws" {
+		t.Fatalf("installer manifest = %+v", manifest)
+	}
+	for platform, expected := range map[string][]byte{"windows-amd64": windowsContents, "linux-amd64": linuxContents} {
+		item := manifest.Packages[platform]
+		actual, readError := os.ReadFile(filepath.Join(out, item.File))
+		if readError != nil {
+			t.Fatal(readError)
+		}
+		if !bytes.Equal(actual, expected) || item.Size != int64(len(expected)) {
+			t.Fatalf("%s package mismatch: %+v %q", platform, item, actual)
+		}
+	}
+}

@@ -50,9 +50,15 @@ versions=$install_root/versions
 target=$versions/$version
 target_client=$target/spacechat-client
 staging=$versions/.$version.new.$$
+profile=$HOME/.profile
+bash_profile=$HOME/.bash_profile
+bash_login=$HOME/.bash_login
 
 for path in "$config_dir" "$install_root" "$bin_dir" "$versions"; do
     if [ -L "$path" ]; then printf 'Refusing symlink: %s\n' "$path" >&2; exit 1; fi
+done
+for path in "$profile" "$bash_profile" "$bash_login"; do
+    if [ -L "$path" ]; then printf 'Refusing symlinked shell profile: %s\n' "$path" >&2; exit 1; fi
 done
 if [ -e "$target" ]; then printf 'Version already installed: %s\n' "$version" >&2; exit 1; fi
 
@@ -83,12 +89,17 @@ printf '%s\n' "$version" > "$current_temporary"
 chmod 0600 "$current_temporary"
 mv -f "$current_temporary" "$install_root/current"
 
-profile=$HOME/.profile
+append_spacechat_path() {
+    path_profile=$1
+    if ! grep -F 'export PATH="$HOME/.local/bin:$PATH"' "$path_profile" >/dev/null 2>&1; then
+        printf '\n%s\n%s\n' '# Added by SpaceChat installer' 'export PATH="$HOME/.local/bin:$PATH"' >> "$path_profile"
+    fi
+}
 if [ ! -e "$profile" ]; then : > "$profile"; chmod 0600 "$profile"; fi
-if [ -L "$profile" ]; then printf '%s\n' 'Refusing symlinked .profile' >&2; exit 1; fi
-if ! grep -F 'export PATH="$HOME/.local/bin:$PATH"' "$profile" >/dev/null 2>&1; then
-    printf '\n%s\n%s\n' '# Added by SpaceChat installer' 'export PATH="$HOME/.local/bin:$PATH"' >> "$profile"
-fi
+append_spacechat_path "$profile"
+for path in "$bash_profile" "$bash_login"; do
+    if [ -e "$path" ]; then append_spacechat_path "$path"; fi
+done
 
 trap - EXIT HUP INT TERM
 printf 'SpaceChat %s installed. Open a new terminal and run: spacechat\n' "$version"

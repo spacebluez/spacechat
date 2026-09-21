@@ -6,7 +6,29 @@ SpaceChat 是 Go 服务端与终端客户端组成的多房间聊天程序，支
 
 ## 客户端首次安装
 
-首次迁移仍需向用户提供一次对应平台的安装包。示例地址 `chat.example.invalid` 仅为占位符。
+服务端启用首装目录后，用户可以直接下载安装。示例地址 `chat.example.invalid` 仅为占位符。
+
+Linux amd64 一键安装：
+
+```sh
+curl -fsSL https://chat.example.invalid/install/linux | sh
+```
+
+Windows amd64 一键安装：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod 'https://chat.example.invalid/install/windows' | Invoke-Expression"
+```
+
+引导脚本从同一服务端下载签名发布流程生成的安装包，核对 SHA-256 后才解压和调用平台安装器。首次安装脚本本身是信任入口；正式环境应使用 HTTPS。需要先审查 Linux 脚本时可执行：
+
+```sh
+curl -fLo install-spacechat.sh https://chat.example.invalid/install/linux
+less install-spacechat.sh
+sh install-spacechat.sh
+```
+
+也可以继续离线分发对应平台安装包：
 
 Windows：解压 `spacechat-windows-amd64-0.4.0.zip`，在该目录运行：
 
@@ -94,13 +116,14 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1 `
   -SigningKey .\spacechat-release.key
 ```
 
-`dist` 中会生成两个平台的稳定启动器、版本化客户端、一次性安装包、签名更新目录以及服务端包。构建把发布公钥嵌入客户端，并把同一公钥随服务端包发布；构建日志不会输出私钥。
+`dist` 中会生成两个平台的稳定启动器、版本化客户端、一次性安装包、签名更新目录、独立签名的首装目录以及服务端包。构建把发布公钥嵌入客户端，并把同一公钥随服务端包发布；构建日志不会输出私钥。
 
 也可以单独检查公钥或生成清单：
 
 ```text
 go run ./cmd/spacechat-release public-key -private-key ./spacechat-release.key
 go run ./cmd/spacechat-release manifest -version 0.4.0 -minimum 0.3.2 -private-key ./spacechat-release.key -windows ./client.exe -linux ./client -out ./updates-0.4.0
+go run ./cmd/spacechat-release installers -version 0.4.0 -server wss://chat.example.invalid/ws -private-key ./spacechat-release.key -windows-package ./spacechat-windows-amd64-0.4.0.zip -linux-package ./spacechat-linux-amd64-0.4.0.zip -out ./installers-0.4.0
 ```
 
 ## 服务端部署
@@ -118,11 +141,12 @@ sh install.sh '127.0.0.1:18081' '127.0.0.0/8'
 | systemd 服务 | `xchat-rooms.service` |
 | 服务端程序 | `/opt/xchat-rooms/xchat-server` |
 | 已验证更新目录 | `/opt/xchat-rooms/updates` |
+| 已验证首装目录 | `/opt/xchat-rooms/installers` |
 | 更新公钥 | `/etc/xchat-rooms/update-public.key` |
 | 数据库与主密钥 | `/var/lib/xchat-rooms/rooms.db`、`/etc/xchat-rooms/encryption.key` |
 | 管理 socket | `/run/xchat-rooms/admin.sock` |
 
-安装器先复制到 `updates.new`，拒绝任何符号链接，再调用新服务端二进制的同一套生产校验逻辑验证签名、版本、摘要和文件大小。只有验证成功才切换更新目录、公钥、程序和 systemd 单元；服务重启失败时恢复上一套内容。
+安装器先复制到 `updates.new` 和 `installers.new`，拒绝任何符号链接，再调用新服务端二进制的生产校验逻辑验证两份清单的签名、版本、摘要和文件大小。只有验证成功才切换更新目录、首装目录、公钥、程序和 systemd 单元；服务重启失败时恢复上一套内容。
 
 常用检查：
 
