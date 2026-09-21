@@ -158,7 +158,7 @@ git commit -m "feat:新增客户端版本与更新清单模型"
 - Produces: `WithUpdateCatalog(*UpdateCatalog) RoomsOption`; existing `NewRooms(repository)` calls remain valid through a variadic option.
 - Produces: immutable `UpdateCatalog.Manifest() update.Manifest` and `UpdateCatalog.MinimumVersion() update.Version`.
 
-- [ ] **Step 1: Write failing catalog load and HTTP tests**
+- [x] **Step 1: Write failing catalog load and HTTP tests**
 
 Create a temporary signed manifest, signature, and two four-byte artifacts. Assert:
 
@@ -181,13 +181,13 @@ for path, expected := range map[string][]byte{
 
 Also assert `404` for unlisted files and load failure for a missing, symlinked, wrong-size, or wrong-hash artifact.
 
-- [ ] **Step 2: Run the server catalog tests and verify RED**
+- [x] **Step 2: Run the server catalog tests and verify RED**
 
 Run: `go test ./internal/server -run 'TestUpdateCatalog' -count=1`
 
 Expected: FAIL because catalog types and routes do not exist.
 
-- [ ] **Step 3: Implement immutable catalog loading and handlers**
+- [x] **Step 3: Implement immutable catalog loading and handlers**
 
 ```go
 type UpdateCatalog struct {
@@ -207,13 +207,13 @@ func WithUpdateCatalog(catalog *UpdateCatalog) RoomsOption {
 
 Use `os.Lstat` to reject symlinks and non-regular files, hash each artifact at load, and register only exact manifest, signature, and `/artifacts/<base-name>` routes. Set `Content-Length`, `Content-Type: application/octet-stream`, `X-Content-Type-Options: nosniff`, and `Cache-Control: no-store` for manifests; artifacts may use immutable caching keyed by versioned filename.
 
-- [ ] **Step 4: Run server catalog and existing server tests**
+- [x] **Step 4: Run server catalog and existing server tests**
 
 Run: `go test ./internal/server -count=1`
 
 Expected: PASS, including callers that still use `NewRooms(repository)`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/server/update_catalog.go internal/server/update_catalog_test.go internal/server/server.go internal/server/rooms.go

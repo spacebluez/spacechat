@@ -37,6 +37,7 @@ type Server struct {
 	closed         bool
 	accessKeyHash  [32]byte
 	authConfigured bool
+	updates        *UpdateCatalog
 }
 
 func New(repository Repository, key string) *Server {
@@ -45,6 +46,9 @@ func New(repository Repository, key string) *Server {
 }
 func (service *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	if service.updates != nil {
+		service.updates.register(mux)
+	}
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, request *http.Request) {
 		service.mu.Lock()
 		defer service.mu.Unlock()
