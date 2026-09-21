@@ -32,7 +32,7 @@
       {
         "guid": "{3f80440e-28d7-4f36-9c2a-39d845951770}",
         "name": "XChat",
-        "commandline": "\"%WT_SETTINGS_DIR%\\..\\..\\xchat-rooms.exe\"",
+        "commandline": "\"%SystemRoot%\\System32\\cmd.exe\"",
         "suppressApplicationTitle": true
       }
     ]

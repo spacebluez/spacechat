@@ -30,11 +30,14 @@ type Message struct {
 }
 
 type Join struct {
-	AccessKey   string `json:"access_key"`
-	Nickname    string `json:"nickname"`
-	InstanceID  string `json:"instance_id,omitempty"`
-	AfterID     int64  `json:"after_id,omitempty"`
-	ClientToken string `json:"client_token,omitempty"`
+	AccessKey     string `json:"access_key"`
+	Nickname      string `json:"nickname"`
+	InstanceID    string `json:"instance_id,omitempty"`
+	AfterID       int64  `json:"after_id,omitempty"`
+	ClientToken   string `json:"client_token,omitempty"`
+	ClientVersion string `json:"client_version,omitempty"`
+	ClientOS      string `json:"client_os,omitempty"`
+	ClientArch    string `json:"client_arch,omitempty"`
 }
 
 type Welcome struct {
@@ -69,8 +72,9 @@ type Presence struct {
 	Users []string `json:"users"`
 }
 type Failure struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code           string `json:"code"`
+	Message        string `json:"message"`
+	MinimumVersion string `json:"minimum_version,omitempty"`
 }
 type Cleared struct {
 	InstanceID string `json:"instance_id"`

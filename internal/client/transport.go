@@ -60,9 +60,13 @@ func (options Options) httpClient() *http.Client {
 	}
 }
 
+func (options Options) HTTPClient() *http.Client {
+	return options.httpClient()
+}
+
 // NewPeer keeps this process's identity and certificate policy during room switches.
 func (network *Client) NewPeer() *Client {
-	peer := New(network.address, network.options)
+	peer := NewWithInfo(network.address, network.info, network.options)
 	peer.token = network.token
 	network.mu.Lock()
 	defer network.mu.Unlock()

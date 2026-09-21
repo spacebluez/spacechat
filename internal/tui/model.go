@@ -24,6 +24,9 @@ type networkEvent struct {
 	source *client.Client
 	closed bool
 }
+
+type clientFactory func(address string, info client.Info, peer *client.Client) *client.Client
+
 type Model struct {
 	switcher          *roomSwitch
 	picker            *kaomojiPicker
@@ -36,6 +39,8 @@ type Model struct {
 	recalls           map[string]int64
 	networkOptions    client.Options
 	address           string
+	clientInfo        client.Info
+	clientFactory     clientFactory
 	name              string
 	nickname          textinput.Model
 	accessKey         textinput.Model
@@ -52,10 +57,29 @@ type Model struct {
 	pending           map[string]string
 	issues            []string
 	hasMore, loading  bool
+	upgradeRequired   bool
 	sequence          uint64
 }
 
 func New(address string, configuration ...client.Options) *Model {
+	return NewWithClientInfo(address, client.Info{}, configuration...)
+}
+
+func NewWithClientInfo(address string, info client.Info, configuration ...client.Options) *Model {
+	var options client.Options
+	if len(configuration) > 0 {
+		options = configuration[0]
+	}
+	factory := func(address string, info client.Info, peer *client.Client) *client.Client {
+		if peer != nil {
+			return peer.NewPeer()
+		}
+		return client.NewWithInfo(address, info, options)
+	}
+	return newWithClientFactory(address, info, factory, options)
+}
+
+func newWithClientFactory(address string, info client.Info, factory clientFactory, configuration ...client.Options) *Model {
 	nickname := textinput.New()
 	nickname.Placeholder = "输入昵称（1–20 字符）"
 	nickname.CharLimit = 20
@@ -76,7 +100,7 @@ func New(address string, configuration ...client.Options) *Model {
 	input.Placeholder = "输入消息，Enter 发送，Shift+Enter 换行"
 	input.CharLimit = 2000
 	input.Prompt = "> "
-	model := &Model{address: address, nickname: nickname, accessKey: keyInput, input: input, viewport: viewport.New(70, 15), width: 100, height: 26, pending: make(map[string]string), state: "未连接"}
+	model := &Model{address: address, clientInfo: info, clientFactory: factory, nickname: nickname, accessKey: keyInput, input: input, viewport: viewport.New(70, 15), width: 100, height: 26, pending: make(map[string]string), state: "未连接"}
 	model.recalls = make(map[string]int64)
 	if len(configuration) > 0 {
 		model.networkOptions = configuration[0]
@@ -85,6 +109,9 @@ func New(address string, configuration ...client.Options) *Model {
 	return model
 }
 func (model *Model) Init() tea.Cmd { return textinput.Blink }
+func (model *Model) UpgradeRequired() bool {
+	return model.upgradeRequired
+}
 func (model *Model) Close() {
 	if model.switcher != nil && model.switcher.candidate != nil {
 		model.switcher.candidate.Close()
@@ -130,6 +157,11 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model, nil
 	case networkEvent:
 		if model.switcher != nil && model.switcher.candidate != nil && value.source == model.switcher.candidate.network {
+			if value.event.State == "upgrade_required" {
+				model.upgradeRequired = true
+				model.Close()
+				return model, tea.Quit
+			}
 			return model, model.candidateEvent(value)
 		}
 		if value.source != nil && value.source != model.network {
@@ -137,6 +169,11 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if value.closed {
 			return model, nil
+		}
+		if value.event.State == "upgrade_required" {
+			model.upgradeRequired = true
+			model.Close()
+			return model, tea.Quit
 		}
 		model.applyEvent(value.event)
 		var catalogCommand tea.Cmd
@@ -217,7 +254,7 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.nickname.Blur()
 				model.accessKey.Blur()
 				model.input.Focus()
-				model.network = client.New(model.address, model.networkOptions)
+				model.network = model.clientFactory(model.address, model.clientInfo, nil)
 				ctx, cancel := context.WithCancel(context.Background())
 				model.cancel = cancel
 				model.ctx = ctx
@@ -355,7 +392,7 @@ func (model *Model) applyEvent(event client.Event) {
 			model.nickname.Blur()
 			model.accessKey.Focus()
 			model.input.Blur()
-		case "name_taken", "invalid_name", "invalid_address", "tls_error":
+		case "name_taken", "invalid_name", "invalid_address", "tls_error", "unsupported_client":
 			model.connected = false
 			model.joined = false
 			model.notice = event.Detail

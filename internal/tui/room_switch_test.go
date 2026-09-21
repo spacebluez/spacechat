@@ -225,3 +225,33 @@ func TestOldRoomShortcutIsNotUsed(t *testing.T) {
 		t.Fatal("F2 does not open room switch")
 	}
 }
+
+func TestUpgradeRequiredFromCandidateQuitsWholeClient(t *testing.T) {
+	model := switchingModel()
+	cancelled := false
+	model.cancel = func() { cancelled = true }
+	switchKey(model, tea.KeyF2)
+	model.switcher.key.SetValue("target")
+	switchKey(model, tea.KeyEnter)
+	candidate := model.switcher.candidate.network
+	_, command := model.Update(networkEvent{source: candidate, event: client.Event{State: "upgrade_required", Detail: "必须升级"}})
+	if !model.UpgradeRequired() || !cancelled || command == nil {
+		t.Fatalf("upgradeRequired=%v cancelled=%v command=%v", model.UpgradeRequired(), cancelled, command)
+	}
+	if _, ok := command().(tea.QuitMsg); !ok {
+		t.Fatal("candidate upgrade requirement did not quit")
+	}
+}
+
+func TestUnsupportedClientCandidatePreservesOldRoom(t *testing.T) {
+	model := switchingModel()
+	old := model.network
+	switchKey(model, tea.KeyF2)
+	model.switcher.key.SetValue("target")
+	switchKey(model, tea.KeyEnter)
+	candidate := model.switcher.candidate.network
+	model.Update(networkEvent{source: candidate, event: client.Event{State: "unsupported_client", Detail: "当前平台不受支持"}})
+	if model.network != old || !model.joined || model.switcher == nil || model.switcher.candidate != nil || model.switcher.notice != "当前平台不受支持" {
+		t.Fatal("unsupported candidate damaged the active room")
+	}
+}

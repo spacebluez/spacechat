@@ -93,7 +93,7 @@ func (model *Model) submitRoomSwitch() tea.Cmd {
 	dialog.waiting = false
 	dialog.confirm = false
 	dialog.notice = "正在进入目标房间…"
-	target := New(model.address, model.networkOptions)
+	target := newWithClientFactory(model.address, model.clientInfo, model.clientFactory, model.networkOptions)
 	target.catalog, target.kaomojiOverride = model.catalog, model.kaomojiOverride
 	target.width, target.height = model.width, model.height
 	target.resize()
@@ -103,7 +103,7 @@ func (model *Model) submitRoomSwitch() tea.Cmd {
 	target.accessKey.SetValue(key)
 	target.joined = true
 	target.state = "连接中"
-	target.network = model.network.NewPeer()
+	target.network = target.clientFactory(model.address, target.clientInfo, model.network)
 	ctx, cancel := context.WithCancel(context.Background())
 	target.cancel = cancel
 	target.ctx = ctx
@@ -163,7 +163,7 @@ func (model *Model) candidateEvent(event networkEvent) tea.Cmd {
 		return model.failRoomSwitch("目标连接已关闭，请重试；原房间保留")
 	}
 	switch event.event.State {
-	case "unauthorized", "name_taken", "invalid_name", "invalid_address", "tls_error":
+	case "unauthorized", "name_taken", "invalid_name", "invalid_address", "tls_error", "unsupported_client":
 		return model.failRoomSwitch(event.event.Detail)
 	case "disconnected":
 		return model.failRoomSwitch("进入目标房间失败，请重试；原房间保留")

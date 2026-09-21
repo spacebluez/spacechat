@@ -1,43 +1,48 @@
-# XChat 多房间内网聊天（0.4.0）
+# SpaceChat 多房间内网聊天（0.4.0）
 
-Go 服务端 + Windows x64 TUI 客户端，完整源码、测试、构建及部署脚本均在仓库。
+SpaceChat 是 Go 服务端与终端客户端组成的多房间聊天程序，支持 Windows amd64、Linux amd64，以及由当前 SpaceChat 服务端下发的客户端在线更新。
 
-本分支从 `origin/main` 开发：**消息撤回、TLS 网络加密、@成员、重新实现的颜文字搜索与发送**。保留任意口令建房、加密存储、多行编辑与客户端切换房间。新功能需要客户端和多房间服务端一起升级；旧版单房间服务及数据库不在本次升级范围。
+0.4.0 包含**消息撤回、TLS 网络加密、@成员、重新实现的颜文字搜索与发送**，并保留任意口令建房、加密存储、多行编辑与客户端切换房间。新功能需要客户端和多房间服务端一起升级；旧版单房间服务及数据库不在本次升级范围。
 
-## 使用客户端
+客户端完成一次用户级安装后，可以在新终端直接运行 `spacechat`。后续版本由所连接的 SpaceChat 服务端提供，不依赖其他下载地址，也不要求管理员权限。
 
-解压 dist/xchat-rooms-windows-amd64-0.4.0.zip，运行 xchat-rooms.exe。源码默认连接本机 WSS 测试地址；实际内网地址通过管理员私下提供的构建包或 --server 指定。本文 chat.example.invalid 是占位地址。
+## 客户端首次安装
 
-请完整解压并保留 `terminal` 目录。Windows 10 2004（内部版本 19041）及以上，双击无参数启动时会使用包内的独立 Windows Terminal 和后备字体，避免传统控制台“新宋体”缺字导致颜文字显示为方框。无需安装，不改变系统默认终端。通过命令行传参、从现有终端运行或单独复制 exe 时保留当前终端；要显示全部特殊字符，需在支持字体回退的终端中运行。
+服务端启用首装目录后，用户可以直接下载安装。示例地址 `chat.example.invalid` 仅为占位符。
 
-    .\xchat-rooms.exe --server wss://chat.example.invalid:18081/ws
-    .\xchat-rooms.exe --server wss://chat.example.invalid:18081/ws --tls-ca company-ca.pem
-    .\xchat-rooms.exe --version
-    .\xchat-rooms.exe --kaomoji config/kaomoji.json
+Linux amd64 一键安装：
 
-输入昵称按 Enter，再输入房间口令按 Enter。相同口令进入相同房间，不存在则自动创建。无需账号、无需管理员预建房间。口令精确匹配且区分大小写与空格，1–256 个字符，不允许全空白及控制字符。不同口令就是不同房间，输错口令可能进入一个新房间。
+```sh
+curl -fsSL https://chat.example.invalid/install/linux | sh
+```
 
-| 操作 | 快捷键 |
-| --- | --- |
-| 昵称 / 口令切换 | Tab / Shift+Tab |
-| 继续 / 进入 / 发送消息 | Enter |
-| 换行 | Shift+Enter（Windows 原生客户端）；Ctrl+J 兼容换行 |
-| 粘贴多行草稿 | 客户端 Ctrl+V（推荐），Shift+Insert |
-| 编辑草稿 | 方向键、Home / End |
-| 浏览历史 | PgUp / PgDn |
-| 回到最新 / 已加载历史顶部 | Ctrl+End / Ctrl+Home |
-| 切换房间 | F2；窗口内 Enter 确认、Esc 取消 |
-| 选择颜文字 | F3；输入关键词搜索，Tab / Shift+Tab 切换分类，↑↓ 选择 |
-| 插入 / 单独发送颜文字 | 选择器内 Enter 插入草稿，Ctrl+S 单独发送，Esc 取消 |
-| @成员 | 输入独立的 @ 或 F4；搜索、↑↓ 选择、Enter 插入、Esc 取消 |
-| 撤回本人消息 | F5；↑↓ 选择，Enter 确认后再次 Enter 撤回，Esc 取消 |
-| 退出 | Ctrl+C |
+Windows amd64 一键安装：
 
-正文最多 2000 个 Unicode 字符（包含换行），支持 LF 多行；昵称最多 20 字符且不能换行。同一房间内在线昵称不能重复，不同房间可以同名。口令、历史消息、在线名单不向其他房间公开。口令本身不作为房间名称显示。
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod 'https://chat.example.invalid/install/windows' | Invoke-Expression"
+```
 
-**多行粘贴请优先使用客户端 Ctrl+V**，一次读入系统剪贴板，不发送草稿。某些终端的右键/外层粘贴会把 CR 当作真实 Enter；不要用这类粘贴方式输入多行。Windows 原生控制台保留 Shift 修饰键；其他终端若无法区分 Shift+Enter，可用 Ctrl+J。
+引导脚本从同一服务端下载签名发布流程生成的安装包，核对 SHA-256 后才解压和调用平台安装器。首次安装脚本本身是信任入口；正式环境应使用 HTTPS。需要先审查 Linux 脚本时可执行：
 
-断线自动重连，按房间补齐消息、保留草稿。发送未确认时显示结果未知，不自动重发以避免重复。首次显示最近 100 条，更早消息分页加载。无需退出客户端，可通过 F2 切换房间。
+```sh
+curl -fLo install-spacechat.sh https://chat.example.invalid/install/linux
+less install-spacechat.sh
+sh install-spacechat.sh
+```
+
+也可以继续离线分发对应平台安装包：
+
+Windows：解压 `spacechat-windows-amd64-0.4.0.zip`，在该目录运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Server wss://chat.example.invalid/ws -Version 0.4.0
+```
+
+Linux：解压 `spacechat-linux-amd64-0.4.0.zip`，在该目录运行：
+
+```sh
+sh ./install.sh 'wss://chat.example.invalid/ws' '0.4.0'
+```
 
 ## 消息撤回与 @成员
 
@@ -63,16 +68,16 @@ F5 列出当前客户端发送、且在两分钟内的可撤回消息。确认�
 
 `version` 是格式版本。目录最大 1 MiB、64 个分类、4096 个表情，每项最多 32 个搜索词；分类名、文本和搜索词必须是有效单行文本，同一分类内表情不重复。目录对允许连接的客户端共享，不能放私密内容。公开接口只读，配置通过服务器文件管理。
 
-客户端显式传入 `--kaomoji config/kaomoji.json` 时使用个人本地目录并停止远程获取；发布包附带的文件仅是自定义示例，不会自动读取。颜文字以普通文本消息发送，不涉及图片、贴图或文件上传。
+客户端显式传入 `--kaomoji config/kaomoji.json` 时使用个人本地目录并停止远程获取；本地目录文件需另行提供。颜文字以普通文本消息发送，不涉及图片、贴图或文件上传。
 
 ## 客户端内切换房间
 
-1. 聊天中按 **F2** 打开切换窗口。口令默认空白且显示星号，昵称自动带入；Tab 可切换输入项，昵称允许修改。
-2. 输入目标房间口令，按 Enter。若有未发送草稿，需要再次按 Enter 确认；**只有切换成功才丢弃旧草稿**。
-3. 客户端先建立目标连接并同步历史，再退出原房间；目标昵称占用、连接失败或 15 秒超时，都保留原房间及草稿，允许修改后重试。
-4. Esc 随时取消切换，返回原房间。连接过程中不重复提交，也不会把窗口内输入发成聊天消息。
+安装后打开新终端：
 
-有未确认消息时先等待发送结果；发送失败或断线导致结果未知，会提示再次确认，不自动重发。相同口令及相同昵称只提示“已在当前房间”，不重新连接。切换成功后聊天记录、在线名单、昵称、草稿、分页及滚动状态整体切换，旧连接的迟到事件不进入新房间。
+```text
+spacechat --version
+spacechat
+```
 
 仅显示和操作一个房间，不保存口令到磁盘、不提供房间列表、收藏、多标签页或后台未读。切换房间时保留 TLS 信任配置和当前进程的撤回身份。0.4.0 的撤回与 @标记需要新版多房间服务端；旧客户端不会处理撤回事件，应统一升级。
 
@@ -88,7 +93,13 @@ F5 列出当前客户端发送、且在两分钟内的可撤回消息。确认�
 
 远程明文连接和无证书的非回环监听默认拒绝。显式 `--allow-insecure` 仅供临时明文调试，不影响证书校验；回环 `ws://127.0.0.1` / `ws://[::1]` 可用于本机测试或 TLS 代理后端。生产安装脚本要求提供证书，以原生 TLS 启动。TLS 是客户端到服务端的传输加密，不是端到端加密。
 
-## 存储加密与安全边界
+临时连接另一台服务端时，命令行参数优先于安装配置：
+
+```text
+spacechat --server wss://other.example.invalid/ws
+```
+
+Windows 安装在 `%LOCALAPPDATA%\SpaceChat`，并只修改当前用户的 `PATH`。Linux 启动器位于 `~/.local/bin/spacechat`，配置与版本文件分别使用 XDG 配置目录和数据目录。安装器拒绝符号链接输入，先运行版本化客户端的本地自检，再原子写入配置和当前版本指针。
 
 - 昵称及正文在写入 SQLite 前使用 AES-256-GCM 认证加密；随机 nonce，认证数据绑定房间标识、消息 ID 与时间。数据库及 WAL 不写明文昵称和正文。
 - 口令不保存到数据库，用独立派生密钥的 HMAC-SHA256 得到房间标识。弱口令仍可能被在线猜中，请使用足够长的随机口令并私下分享。
@@ -96,99 +107,148 @@ F5 列出当前客户端发送、且在两分钟内的可撤回消息。确认�
 - 启动会校验密钥，错误密钥、损坏密文或旧明文库均拒绝使用。不支持本期密钥轮换或旧库迁移。**丢失密钥将无法恢复聊天内容；不要删除或重新生成现有密钥。**
 - 消息数量、时间戳、匿名房间标识和数据库结构不是加密对象。此方案不是整库加密或端到端加密；服务器可解密内容。
 - 默认通过 WSS 加密网络传输，部署证书与客户端信任方式见上文。显式启用的 WS 调试连接仍为明文。
-- 无个人身份验证、口令找回、私聊、文件传输、分布式或自动更新。昵称不是身份凭证。
+- 无个人身份验证、口令找回、私聊、文件传输或分布式部署。昵称不是身份凭证。
 
-## 构建
+## 在线更新行为
 
-仅构建新版客户端及源码包（不会编译、部署或重启服务端）：
+每次进入聊天界面前，客户端从当前服务端的固定接口读取已签名清单：
 
-    powershell -ExecutionPolicy Bypass -File scripts/build-client.ps1 -Server wss://chat.example.invalid:18081/ws
+- 已是最新版本：直接进入程序。
+- 存在兼容更新：显示 `Update / Skip`；跳过只对本次启动有效。
+- 当前版本低于服务端最低版本：显示 `Update / Exit`，不能跳过。
+- 下载、摘要校验、自检或启动新版失败：保留旧版本；可选更新可继续使用，强制更新只能重试或退出。
 
-省略 -Server 时默认连接本机 WSS 测试地址。输出为 dist/xchat-rooms-0.4.0.exe、客户端 zip 和源码 zip。仅客户端构建不升级服务端；完整启用本次功能需部署同版本服务端和有效的 TLS 证书。
+更新制品只从 `spacechat --server` 或安装配置选定的服务端下载。客户端拒绝跨主机重定向，并验证 Ed25519 清单签名、文件名、大小和 SHA-256。新版安装到独立版本目录，自检通过后才原子切换 `current`；新版无法启动时恢复旧指针。
 
-需要 Go 1.26 或更高版本和 PowerShell。默认构建不包含真实服务地址：
+WebSocket 加入请求会同时上报版本与平台。服务端在读取房间、历史和成员信息前执行最低版本检查，因此直接运行旧版本化程序也不能绕过强制更新。
 
-Windows 包含微软官方 Windows Terminal 1.24.11911.0 便携发行版、其附带字体和许可文件。首次打包需访问 GitHub 下载约 11 MiB，校验固定 SHA256 后缓存到 `dist/terminal-cache`；后续构建复用缓存。后备字体配置位于 `scripts/windows-terminal/settings.json`，打包后仅作用于此客户端目录。
+Windows 包含微软官方 Windows Terminal 1.24.11911.0 便携发行版、其附带字体和许可文件。首次打包需访问 GitHub 下载约 11 MiB，校验固定 SHA256 后缓存到 `dist/terminal-cache`；后续构建复用缓存。后备字体配置位于 `scripts/windows-terminal/settings.json`，安装后仅作用于当前用户的 SpaceChat 目录。
 
-    go test ./...
-    go vet ./...
-    powershell -ExecutionPolicy Bypass -File scripts/build.ps1
+## 聊天使用
 
-私有部署包可以在本地用 -Server 指定实际地址；不要把实际地址、包或密钥提交到公共仓库。
+输入昵称后按 Enter，再输入房间口令按 Enter。相同口令进入相同房间，不存在则自动创建。口令精确匹配且区分大小写与空格，长度为 1–256 个字符；不同口令就是不同房间。
 
-    powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Server wss://chat.example.invalid:18081/ws
-
-使用内部 CA 时可额外传入 `-TLSCA company-ca.pem`，将公有 CA 证书编入客户端，双击 exe 即可使用该信任配置。不要传入私钥。运行时的 `--tls-ca` 可覆盖编入的 CA，未设置两者时使用系统信任库。
-
-输出位于 dist：版本化 Windows exe / zip、Linux 服务端 zip、完整源码 zip。新构建不会覆盖旧版 xchat.exe 或旧服务器包。
-
-## 独立部署
-
-仅使用 dist/rooms-server/install.sh，不运行旧版安装流程。deploy/install.sh 在本分支主动拒绝旧版部署。新包解压到独立目录后运行：
-
-    sh install.sh '<SERVER_IP>:18081' '<CLIENT_CIDR>,127.0.0.0/8' /path/to/server.crt /path/to/server.key
-
-先确认所选端口空闲，使用可信内网绑定地址与来源白名单，并准备 CA 签发且与连接地址匹配的证书。安装依赖 Linux systemd、Python 3.7+、标准账户/文件管理命令。已有 `/etc/xchat-rooms/tls.crt` 和 `tls.key` 时可省略后两个参数。
-
-| 项目 | 新实例 |
+| 操作 | 快捷键 |
 | --- | --- |
-| systemd 服务 | xchat-rooms.service |
-| 程序 | /opt/xchat-rooms/xchat-server |
-| 配置及加密密钥 | /etc/xchat-rooms/ |
-| 数据库 | /var/lib/xchat-rooms/rooms.db |
-| 私有管理 socket | /run/xchat-rooms/admin.sock |
-| 定时器 | xchat-rooms-cleanup.timer |
-| 示例端口 | 18081 |
+| 昵称 / 口令切换 | Tab / Shift+Tab |
+| 继续 / 进入 / 发送消息 | Enter |
+| 换行 | Shift+Enter（Windows 原生客户端）；Ctrl+J 兼容换行 |
+| 粘贴多行草稿 | Ctrl+V（推荐），Shift+Insert |
+| 编辑草稿 | 方向键、Home / End |
+| 浏览历史 | PgUp / PgDn |
+| 回到最新 / 已加载历史顶部 | Ctrl+End / Ctrl+Home |
+| 切换房间 | F2；窗口内 Enter 确认、Esc 取消 |
+| 选择颜文字 | F3；输入关键词搜索，Tab / Shift+Tab 切换分类，↑↓ 选择 |
+| 插入 / 单独发送颜文字 | 选择器内 Enter 插入草稿，Ctrl+S 单独发送，Esc 取消 |
+| @成员 | 输入独立的 @ 或 F4；搜索、↑↓ 选择、Enter 插入、Esc 取消 |
+| 撤回本人消息 | F5；↑↓ 选择，Enter 确认后再次 Enter 撤回，Esc 取消 |
+| 退出 | Ctrl+C |
 
-所有路径、账户及单元均独立于旧服务。安装脚本只启用/重启多房间实例及其定时器。已有监听地址、来源白名单和数据库密钥保留，TLS 证书复制到 `/etc/xchat-rooms/tls.crt` / `tls.key`（root:xchat-rooms 0640），并更新 `server.env` 中两个 TLS 路径。证书源文件也应妥善保护。
+断线后客户端自动重连并按房间补齐消息。发送结果未知时不会自动重发，避免重复消息。F2 切房会先建立目标连接并同步历史，成功后才退出原房间；失败、昵称占用或超时均保留原房间与草稿。
 
-    systemctl status xchat-rooms --no-pager
-    journalctl -u xchat-rooms -n 50 --no-pager
-    curl --cacert company-ca.pem https://chat.example.invalid:18081/healthz
+## 签名构建与发布
 
-健康检查请使用新服务实际监听地址。不会自动修改防火墙；需要时仅允许指定公司网段访问新端口，不改变原端口规则。
+需要 Go 1.26 或更高版本和 PowerShell。正式清单必须显式提供 Ed25519 私钥。下面用 OpenSSL 生成一次 32 字节随机种子；该文件必须离线保管，不能提交仓库、复制到服务端或发给客户端：
 
-## 每日与手动清理
+```sh
+umask 077
+openssl rand -base64 32 > spacechat-release.key
+```
 
-每天北京时间 **00:00** 事务性删除新实例的**全部房间及全部聊天记录**，不是只删当天活跃房间。通知所有在线客户端清空历史，保留草稿及连接；继续发送时按原房间标识重新建房。消息 ID 不重复使用，同步代次变化防止旧历史重新出现。
+仅构建客户端、安装包与签名更新目录：
 
-定时器调用与手动执行相同的 Python 脚本，通过新实例私有 socket 清理。公开 HTTP/WebSocket 不提供管理接口。
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-client.ps1 `
+  -Server wss://chat.example.invalid/ws `
+  -Version 0.4.0 `
+  -MinimumVersion 0.0.0 `
+  -SigningKey .\spacechat-release.key
+```
 
-    sudo python3 /opt/xchat-rooms/clear_history.py
-    sudo python3 /opt/xchat-rooms/clear_history.py --yes
+完整构建客户端与 Linux 服务端包：
 
-仓库脚本同样可手动执行：
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build.ps1 `
+  -Server wss://chat.example.invalid/ws `
+  -Version 0.4.0 `
+  -MinimumVersion 0.0.0 `
+  -SigningKey .\spacechat-release.key
+```
 
-    sudo python3 deploy/clear_history.py
+`dist` 中会生成两个平台的稳定启动器、版本化客户端、一次性安装包、签名更新目录、独立签名的首装目录以及服务端包。构建把发布公钥嵌入客户端，并把同一公钥随服务端包发布；构建日志不会输出私钥。
 
-默认目标为 /run/xchat-rooms/admin.sock。高级用法允许 --socket 或 XCHAT_ROOMS_ADMIN_SOCKET 指定测试实例路径；**不要指向旧实例**。交互要求输入 CLEAR；失败不自动重试。
+使用内部 CA 时可额外传入 `-TLSCA company-ca.pem`，将公有 CA 证书编入客户端。不要传入私钥。运行时的 `--tls-ca` 可覆盖编入的 CA，未设置两者时使用系统信任库。
 
-    systemctl list-timers xchat-rooms-cleanup.timer --no-pager
-    journalctl -u xchat-rooms-cleanup.service -n 50 --no-pager
+也可以单独检查公钥或生成清单：
 
-时间可配置：systemctl edit xchat-rooms-cleanup.timer，写入下面内容（例：02:30）：
+```text
+go run ./cmd/spacechat-release public-key -private-key ./spacechat-release.key
+go run ./cmd/spacechat-release manifest -version 0.4.0 -minimum 0.3.2 -private-key ./spacechat-release.key -windows ./client.exe -linux ./client -out ./updates-0.4.0
+go run ./cmd/spacechat-release installers -version 0.4.0 -server wss://chat.example.invalid/ws -private-key ./spacechat-release.key -windows-package ./spacechat-windows-amd64-0.4.0.zip -linux-package ./spacechat-linux-amd64-0.4.0.zip -out ./installers-0.4.0
+```
 
-    [Timer]
-    OnCalendar=
-    OnCalendar=*-*-* 02:30:00 Asia/Shanghai
+## 服务端部署
 
-然后 systemctl daemon-reload 并 systemctl restart xchat-rooms-cleanup.timer。Persistent=false：停机错过的清理不补跑。关闭定时清理用 systemctl disable --now xchat-rooms-cleanup.timer。
+解压完整服务端包后，以 root 运行其中的安装脚本：
 
-清理属于逻辑删除，不承诺物理擦除或缩小文件；备份不自动清理，需另行管理。首次交付前的验证仅清理新实例测试数据。
+```sh
+sh install.sh '0.0.0.0:18081' '10.0.0.0/8,127.0.0.0/8' /path/to/server.crt /path/to/server.key
+```
 
-## 备份与回退
+参数依次是监听地址、允许访问的 CIDR 列表、TLS 证书和私钥。已有 `/etc/xchat-rooms/tls.crt` 与 `tls.key` 时可省略后两个参数。示例地址不是生产配置；证书 SAN 必须匹配客户端连接地址。安装依赖 Linux systemd、Python 3.7+ 和标准账户/文件管理命令。
 
-加密数据库和主密钥必须分别安全备份，主密钥丢失无法恢复。运行中不要单独复制 rooms.db，SQLite WAL 可能含未合并记录。可停**新实例 xchat-rooms**后成套备份其数据目录，备份结束只启动新实例；不得为此操作旧服务。
+| 项目 | 路径 |
+| --- | --- |
+| systemd 服务 | `xchat-rooms.service` |
+| 服务端程序 | `/opt/xchat-rooms/xchat-server` |
+| 已验证更新目录 | `/opt/xchat-rooms/updates` |
+| 已验证首装目录 | `/opt/xchat-rooms/installers` |
+| 更新公钥 | `/etc/xchat-rooms/update-public.key` |
+| TLS 证书与私钥 | `/etc/xchat-rooms/tls.crt`、`/etc/xchat-rooms/tls.key` |
+| 颜文字目录 | `/etc/xchat-rooms/kaomoji.json` |
+| 数据库与主密钥 | `/var/lib/xchat-rooms/rooms.db`、`/etc/xchat-rooms/encryption.key` |
+| 管理 socket | `/run/xchat-rooms/admin.sock` |
+
+安装器先复制到 `updates.new` 和 `installers.new`，拒绝任何符号链接，再调用新服务端二进制的生产校验逻辑验证两份清单的签名、版本、摘要和文件大小。只有验证成功才切换更新目录、首装目录、公钥、程序和 systemd 单元；服务重启失败时恢复上一套内容。
+
+常用检查：
+
+```text
+systemctl status xchat-rooms --no-pager
+journalctl -u xchat-rooms -n 50 --no-pager
+curl --cacert /path/to/company-ca.pem https://chat.example.invalid:18081/healthz
+```
+
+## 最低版本迁移与回退
+
+首次启用在线更新时按以下顺序发布：
+
+1. 使用 `MinimumVersion=0.0.0` 部署新服务端和清单，旧客户端暂时仍可连接。
+2. 向存量用户提供最后一次人工安装包，使其切换到 `spacechat` 稳定入口。
+3. 确认迁移完成后，再发布将最低版本提高到首个在线更新客户端版本的完整服务端包。
+
+兼容发版只提高 `Version`；存在协议不兼容时才同步提高 `MinimumVersion`。最低版本不得高于清单最新版本。
+
+回退时重新部署上一份完整服务端包，必须同时回退服务端二进制、签名更新目录、公钥和最低版本，不能只替换单个文件。已经更新到更高版本的客户端会把较旧清单视为服务端回退，不会自动降级；只要仍满足回退清单的最低版本即可继续连接。不要手工修改 `manifest.json`，任何字节变化都会使签名失效。
+
+## 存储、安全与清理
 
 部署前备份多房间数据库和原有密钥。当前加密库可直接升级，无需修改消息表结构；新增属性仍保存在加密正文内。回退至不支持撤回的版本可能无法正确显示撤回标记，应使用升级前的独立备份测试回退。旧单房间服务和数据库保持独立，不要把加密库交给旧单房间程序打开。
 
-## 测试与源码
+- 昵称和正文写入 SQLite 前使用 AES-256-GCM；口令通过独立派生密钥的 HMAC-SHA256 得到房间标识，不保存原文。
+- 数据库主密钥位于 `/etc/xchat-rooms/encryption.key`，安装时仅在没有既有数据库时生成。丢失主密钥无法恢复聊天内容。
+- 签名私钥与数据库主密钥是两类不同密钥；前者不得部署，后者不得随发布包分发。
+- `ws` 与 `wss` 均受支持；需要传输加密时由部署环境提供 TLS，并使用 `wss` 地址。
+- 服务端仍可解密聊天内容；本项目不是端到端加密系统，也不提供个人账号、口令找回、私聊或文件传输。
 
-    go test ./... -count=1
-    go vet ./...
-    python3 -m unittest discover -s deploy -p 'test_*.py'
+每天北京时间 00:00，`xchat-rooms-cleanup.timer` 事务性清空全部房间历史。手动清理：
 
-Linux 可运行 go test -race ./...。XCHAT_EXE 指向新 exe 时启用 Windows ConPTY 测试。部署冒烟需显式设置 XCHAT_SMOKE_ADDRESS、XCHAT_SMOKE_KEY、XCHAT_SMOKE_MARKER，只能指向获准测试的新服务。
+```text
+sudo python3 /opt/xchat-rooms/clear_history.py
+sudo python3 /opt/xchat-rooms/clear_history.py --yes
+```
+
+运行中不要单独复制 SQLite 数据库；应停止新实例后成套备份数据目录与主密钥。部署和清理脚本只操作 `xchat-rooms` 实例。
 
 - internal/securestore：加密 SQLite、房间索引、密钥校验。
 - internal/server：房间隔离、消息同步、全量清理。
@@ -198,9 +258,16 @@ Linux 可运行 go test -race ./...。XCHAT_EXE 指向新 exe 时启用 Windows 
 - deploy/rooms、deploy/clear_history.py：独立部署、定时与手动清理。
 - internal/store、internal/accesskey 与旧部署单元用于旧版回归参考，不能用于新实例的明文存储部署。
 
-当前设计与实施计划见 docs/superpowers 下 2026-09-17 文档；先前验收文档是历史版本记录，不是本分支部署指南。
+## 验证
+
+```text
+go test ./... -count=1
+go vet ./...
+python3 -m unittest discover -s deploy -p 'test_*.py'
+```
 
 0.4.0 功能实现与验收见 `docs/verification-chat-features-0.4.0.md`。
 
 多房间服务验收见 docs/verification-rooms-2026-09-17.md；客户端切换验收见 docs/verification-room-switch-2026-09-17.md；0.3.2 界面与 F2 修复验收见 docs/verification-client-ui-0.3.2.md。
 
+Linux 可额外运行 `go test -race ./...`。主要边界：`internal/update` 负责签名、下载和事务更新，`internal/server` 负责更新目录及版本门槛，`cmd/spacechat` 是稳定入口，`cmd/xchat` 是可更新的版本化客户端。

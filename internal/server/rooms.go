@@ -2,9 +2,12 @@ package server
 
 import "xchat/internal/securestore"
 
-func NewRooms(repository *securestore.Store) *Server {
+func NewRooms(repository *securestore.Store, options ...RoomsOption) *Server {
 	service := New(nil, "")
 	service.rooms = repository
+	for _, option := range options {
+		option(service)
+	}
 	return service
 }
 

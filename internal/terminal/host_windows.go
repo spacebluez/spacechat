@@ -30,15 +30,25 @@ func launchUnicodeHost() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	host := filepath.Join(filepath.Dir(executable), "terminal", "WindowsTerminal.exe")
-	if info, err := os.Stat(host); err != nil || info.IsDir() {
+	directory := filepath.Dir(executable)
+	host := ""
+	for _, candidate := range []string{
+		filepath.Join(directory, "terminal", "WindowsTerminal.exe"),
+		filepath.Clean(filepath.Join(directory, "..", "..", "terminal", "WindowsTerminal.exe")),
+	} {
+		if info, statError := os.Stat(candidate); statError == nil && !info.IsDir() {
+			host = candidate
+			break
+		}
+	}
+	if host == "" {
 		return false, nil
 	}
-	directory, err := os.Getwd()
+	directory, err = os.Getwd()
 	if err != nil {
 		return false, err
 	}
-	command := exec.Command(host, "-w", "new", "new-tab", "--profile", "XChat", "--startingDirectory", directory)
+	command := exec.Command(host, unicodeHostArguments(executable, directory)...)
 	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP}
 	if err := command.Start(); err != nil {
 		return false, err
