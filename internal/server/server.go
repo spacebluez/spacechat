@@ -17,6 +17,7 @@ import (
 	"xchat/internal/accesskey"
 	"xchat/internal/protocol"
 	"xchat/internal/securestore"
+	"xchat/internal/update"
 )
 
 type Repository interface {
@@ -117,6 +118,9 @@ func (service *Server) serveConnection(writer http.ResponseWriter, request *http
 	}
 }
 func (service *Server) join(client *session, join protocol.Join) protocol.Failure {
+	if failure := service.checkClient(join); failure.Code != "" {
+		return failure
+	}
 	provided := sha256.Sum256([]byte(join.AccessKey))
 	if service.rooms == nil && (!service.authConfigured || subtle.ConstantTimeCompare(service.accessKeyHash[:], provided[:]) != 1) {
 		return protocol.Failure{Code: "unauthorized", Message: "密钥错误，请重新输入"}
@@ -183,6 +187,28 @@ func (service *Server) join(client *session, join protocol.Join) protocol.Failur
 		service.finishSync(client)
 	}
 	service.presence()
+	return protocol.Failure{}
+}
+func (service *Server) checkClient(join protocol.Join) protocol.Failure {
+	if service.updates == nil {
+		return protocol.Failure{}
+	}
+	minimum := service.updates.MinimumVersion()
+	if join.ClientVersion == "" && minimum == (update.Version{}) {
+		return protocol.Failure{}
+	}
+	version, err := update.ParseVersion(join.ClientVersion)
+	if err != nil || version.Compare(minimum) < 0 {
+		return protocol.Failure{
+			Code:           "upgrade_required",
+			Message:        "客户端版本过低，请更新到 " + minimum.String() + " 或更高版本",
+			MinimumVersion: minimum.String(),
+		}
+	}
+	platform := join.ClientOS + "-" + join.ClientArch
+	if platform != "windows-amd64" && platform != "linux-amd64" {
+		return protocol.Failure{Code: "unsupported_client", Message: "当前客户端平台不受支持"}
+	}
 	return protocol.Failure{}
 }
 func (service *Server) leave(client *session) {
