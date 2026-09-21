@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"xchat/internal/client"
 	"xchat/internal/securestore"
 	"xchat/internal/server"
 )
@@ -158,9 +160,9 @@ func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size
 	if page.Messages[0].Nickname != "终端验收" || page.Messages[0].Body != "Windows 中文终端验收" {
 		t.Fatalf("text changed: %+v", page)
 	}
-	if _, err = io.WriteString(input, "first line\x1b[13;28;13;1;16;1_second line"); err != nil {
-		t.Fatal(err)
-	}
+	sendConsoleText(t, process.ProcessId, "first line")
+	sendConsoleKey(t, process.ProcessId, 13, '\r', 16)
+	sendConsoleText(t, process.ProcessId, "second line")
 	time.Sleep(300 * time.Millisecond)
 	if latest, _ := repository.LatestID(); latest != 1 {
 		t.Fatal("Shift+Enter sent instead of newline")
@@ -221,6 +223,72 @@ func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size
 	if capture.contains("switch-target") {
 		t.Fatal("target passphrase leaked into terminal output")
 	}
+	if _, err = io.WriteString(input, "keep-draft\x1bOR"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "F3 did not open kaomoji search", func() bool { return capture.contains("颜文字") })
+	if _, err = io.WriteString(input, "hello\x13"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "kaomoji quick send failed", func() bool { latest, _ := target.LatestID(); return latest == 5 })
+	page, err = target.Page(0, 0, 5)
+	if err != nil || page.Messages[len(page.Messages)-1].Body != "(｡•ᴗ•｡)ﾉ" {
+		t.Fatal("wrong kaomoji sent", page, err)
+	}
+	if _, err = io.WriteString(input, "\r"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "quick send lost draft", func() bool { latest, _ := target.LatestID(); return latest == 6 })
+	page, err = target.Page(0, 0, 6)
+	if err != nil || page.Messages[len(page.Messages)-1].Body != "keep-draft" {
+		t.Fatal("draft changed", page, err)
+	}
+	if _, err = io.WriteString(input, "\x1b[15~"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "F5 did not open recall picker", func() bool { return capture.contains("撤回消息") })
+	if _, err = io.WriteString(input, "\r\r"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "recall was not persisted", func() bool {
+		page, err := target.Page(0, 0, 6)
+		return err == nil && len(page.Messages) > 0 && page.Messages[len(page.Messages)-1].Recalled && page.Messages[len(page.Messages)-1].Body == ""
+	})
+	observer := client.New("ws" + strings.TrimPrefix(httpServer.URL, "http") + "/ws")
+	observerContext, stopObserver := context.WithCancel(context.Background())
+	observerDone, observerReady := make(chan struct{}), make(chan struct{})
+	go func() { observer.Run(observerContext, "Bob Smith", "switch-target"); close(observerDone) }()
+	go func() {
+		ready := false
+		for event := range observer.Events() {
+			if !ready && event.State == "connected" {
+				close(observerReady)
+				ready = true
+			}
+		}
+	}()
+	defer func() { stopObserver(); <-observerDone }()
+	select {
+	case <-observerReady:
+	case <-time.After(5 * time.Second):
+		t.Fatal("observer not connected")
+	}
+	if _, err = io.WriteString(input, "\x1bOS"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "F4 did not open members", func() bool { return capture.contains("@成员") })
+	if _, err = io.WriteString(input, "Bob\r\r"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "member mention not sent", func() bool { latest, _ := target.LatestID(); return latest == 7 })
+	page, err = target.Page(0, 0, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mentioned := page.Messages[len(page.Messages)-1]
+	if len(mentioned.Mentions) != 1 || mentioned.Mentions[0] != "Bob Smith" {
+		t.Fatal("mention metadata missing", mentioned)
+	}
 	if err = windows.ResizePseudoConsole(pseudo, windows.Coord{X: 40, Y: 18}); err != nil {
 		t.Fatal(err)
 	}
@@ -235,5 +303,5 @@ func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size
 	if err = windows.GetExitCodeProcess(process.Process, &exitCode); err != nil || exitCode != 0 {
 		t.Fatalf("client exit: %d %v", exitCode, err)
 	}
-	t.Log("packaged executable rendered, joined, sent multiline text, cancelled and switched rooms, resized, paged and exited in Windows ConPTY")
+	t.Log("packaged executable rendered, joined, switched rooms, sent kaomoji, preserved draft, recalled, mentioned a member and exited in Windows ConPTY")
 }

@@ -1,6 +1,7 @@
 param(
-    [string]$Server = "ws://127.0.0.1:18081/ws",
-    [string]$Version = "0.3.2"
+    [string]$Server = "wss://127.0.0.1:18081/ws",
+    [string]$Version = "0.4.0",
+    [string]$TLSCA = ""
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
@@ -15,14 +16,22 @@ try {
     $env:CGO_ENABLED = "0"
     $env:GOARCH = "amd64"
     $env:GOOS = "windows"
-    go build -trimpath -ldflags "-s -w -X main.defaultServer=$Server -X main.version=$Version" -o "dist/xchat-rooms-$Version.exe" ./cmd/xchat
+    $linkFlags = "-s -w -X main.defaultServer=$Server -X main.version=$Version"
+    if ($TLSCA) {
+        $caBytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $TLSCA).Path)
+        if ([System.Text.Encoding]::UTF8.GetString($caBytes) -notmatch '-----BEGIN CERTIFICATE-----' -or [System.Text.Encoding]::UTF8.GetString($caBytes) -match 'PRIVATE KEY') { throw "TLSCA must contain public PEM certificates only" }
+        $encodedCA = [Convert]::ToBase64String($caBytes)
+        $linkFlags += " -X main.defaultTLSCA=$encodedCA"
+    }
+    go build -trimpath -ldflags $linkFlags -o "dist/xchat-rooms-$Version.exe" ./cmd/xchat
     if ($LASTEXITCODE -ne 0) { throw "Client build failed" }
     Copy-Item "dist/xchat-rooms-$Version.exe" "$package/xchat-rooms.exe" -Force
     Copy-Item README.md "$package/README.md" -Force
     New-Item -ItemType Directory -Force -Path "$package/config" | Out-Null
-    Copy-Item "config/kaomoji.json" "$package/config/kaomoji.json" -Force
+    Copy-Item "internal/kaomoji/defaults.json" "$package/config/kaomoji.json" -Force
+    & "$PSScriptRoot/package-terminal.ps1" -Package $package
     Compress-Archive -Path "$package/*" -DestinationPath "dist/xchat-rooms-windows-amd64-$Version.zip" -Force
-    $sourcePaths = @("cmd", "config", "internal", "scripts", "deploy", "docs", "go.mod", "go.sum", "README.md", ".gitignore", ".gitattributes")
+    $sourcePaths = @("cmd", "internal", "scripts", "deploy", "docs", "go.mod", "go.sum", "README.md", ".gitignore", ".gitattributes")
     Compress-Archive -Path $sourcePaths -DestinationPath "dist/xchat-rooms-source-$Version.zip" -Force
     Write-Output "Client-only release built: $Version (no server changes)"
 }

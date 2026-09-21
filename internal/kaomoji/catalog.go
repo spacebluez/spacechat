@@ -1,141 +1,132 @@
 package kaomoji
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"slices"
 	"strings"
-	"sync"
-	"unicode"
-	"unicode/utf8"
+
+	"xchat/internal/protocol"
 )
 
-// Item is a single kaomoji entry. Keywords is reserved for future search and
-// may be empty.
 type Item struct {
 	Text     string   `json:"text"`
 	Keywords []string `json:"keywords,omitempty"`
 }
 
-// Category is a named group of kaomoji entries.
 type Category struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Items []Item `json:"items"`
 }
 
-// file is the on-disk catalog format. Version is reserved so future format
-// changes can be rejected or migrated explicitly.
-type file struct {
+const MaxCatalogBytes = 1024 * 1024
+
+type Catalog struct {
 	Version    int        `json:"version"`
 	Categories []Category `json:"categories"`
 }
 
-var (
-	mu      sync.RWMutex
-	catalog []Category
-)
+//go:embed defaults.json
+var defaults []byte
 
-// Load parses a kaomoji catalog document and atomically replaces the active
-// catalog after it has passed validation.
-func Load(data []byte) error {
-	var document file
-	if err := json.Unmarshal(data, &document); err != nil {
-		return fmt.Errorf("parse kaomoji catalog: %w", err)
-	}
-	if document.Version != 1 {
-		return fmt.Errorf("unsupported kaomoji catalog version %d", document.Version)
-	}
-	if err := validate(document.Categories); err != nil {
-		return err
-	}
-	mu.Lock()
-	catalog = document.Categories
-	mu.Unlock()
-	return nil
-}
-
-// LoadFile reads path and loads it as a kaomoji catalog.
-func LoadFile(path string) error {
-	data, err := os.ReadFile(path)
+func Default() Catalog {
+	catalog, err := Parse(defaults)
 	if err != nil {
-		return fmt.Errorf("read kaomoji catalog %q: %w", path, err)
+		panic(err)
 	}
-	return Load(data)
+	return catalog
 }
 
-// Categories returns a defensive copy of the active catalog so callers can
-// reorder or trim their local view without mutating the shared library.
-func Categories() []Category {
-	mu.RLock()
-	defer mu.RUnlock()
-	categories := make([]Category, len(catalog))
-	for i, category := range catalog {
-		categories[i] = Category{ID: category.ID, Name: category.Name, Items: append([]Item(nil), category.Items...)}
+func Parse(data []byte) (Catalog, error) {
+	var next Catalog
+	if len(data) > MaxCatalogBytes {
+		return Catalog{}, fmt.Errorf("kaomoji catalog exceeds %d bytes", MaxCatalogBytes)
 	}
-	return categories
+	if err := json.Unmarshal(data, &next); err != nil {
+		return Catalog{}, fmt.Errorf("parse kaomoji catalog: %w", err)
+	}
+	if next.Version != 1 {
+		return Catalog{}, fmt.Errorf("unsupported kaomoji catalog version %d", next.Version)
+	}
+	if err := validate(next.Categories); err != nil {
+		return Catalog{}, err
+	}
+	return next, nil
 }
 
-// ValidateCatalog verifies the catalog invariants required by the picker and
-// by protocol.ValidateBody. It checks the currently loaded catalog.
-func ValidateCatalog() error {
-	mu.RLock()
-	defer mu.RUnlock()
-	return validate(catalog)
+func ReadFile(path string) (Catalog, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return Catalog{}, fmt.Errorf("read kaomoji catalog: %w", err)
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, MaxCatalogBytes+1))
+	if err != nil {
+		return Catalog{}, fmt.Errorf("read kaomoji catalog: %w", err)
+	}
+	return Parse(data)
 }
 
-func validate(categories []Category) error {
-	if len(categories) == 0 {
-		return fmt.Errorf("catalog must not be empty")
+func (catalog Catalog) Clone() Catalog {
+	groups := slices.Clone(catalog.Categories)
+	for i := range groups {
+		groups[i].Items = slices.Clone(groups[i].Items)
+		for j := range groups[i].Items {
+			groups[i].Items[j].Keywords = slices.Clone(groups[i].Items[j].Keywords)
+		}
 	}
-	ids := make(map[string]bool, len(categories))
-	for _, category := range categories {
-		if strings.TrimSpace(category.ID) == "" {
-			return fmt.Errorf("category ID must not be empty")
+	return Catalog{Version: catalog.Version, Categories: groups}
+}
+
+func ValidateItem(text string) error {
+	if strings.ContainsAny(text, "\r\n") {
+		return fmt.Errorf("kaomoji must be single-line")
+	}
+	return protocol.ValidateBody(text)
+}
+
+func validate(groups []Category) error {
+	if len(groups) == 0 || len(groups) > 64 {
+		return fmt.Errorf("kaomoji catalog must contain 1 to 64 categories")
+	}
+	ids := make(map[string]bool)
+	count := 0
+	for _, group := range groups {
+		if ValidateItem(group.ID) != nil || ids[group.ID] {
+			return fmt.Errorf("invalid or duplicate category ID %q", group.ID)
 		}
-		if ids[category.ID] {
-			return fmt.Errorf("duplicate category ID %q", category.ID)
+		ids[group.ID] = true
+		if err := ValidateItem(group.Name); err != nil {
+			return fmt.Errorf("category name: %w", err)
 		}
-		ids[category.ID] = true
-		if strings.TrimSpace(category.Name) == "" {
-			return fmt.Errorf("category %q name must not be empty", category.ID)
+		if len(group.Items) == 0 {
+			return fmt.Errorf("category %q has no items", group.ID)
 		}
-		if len(category.Items) == 0 {
-			return fmt.Errorf("category %q must contain at least one item", category.ID)
+		count += len(group.Items)
+		if count > 4096 {
+			return fmt.Errorf("kaomoji catalog exceeds 4096 items")
 		}
-		seen := make(map[string]bool, len(category.Items))
-		for _, item := range category.Items {
+		seen := make(map[string]bool)
+		for _, item := range group.Items {
 			if err := ValidateItem(item.Text); err != nil {
-				return fmt.Errorf("category %q: %w", category.ID, err)
+				return fmt.Errorf("category %q: %w", group.ID, err)
 			}
 			if seen[item.Text] {
-				return fmt.Errorf("category %q contains duplicate item %q", category.ID, item.Text)
+				return fmt.Errorf("duplicate kaomoji in category %q", group.ID)
 			}
 			seen[item.Text] = true
-		}
-	}
-	return nil
-}
-
-// ValidateItem checks the same text constraints as protocol.ValidateBody,
-// except that an all-whitespace value is additionally rejected because a
-// kaomoji must contain visible characters.
-func ValidateItem(text string) error {
-	if strings.TrimSpace(text) == "" {
-		return fmt.Errorf("item must contain visible characters")
-	}
-	if !utf8.ValidString(text) {
-		return fmt.Errorf("item must be valid UTF-8")
-	}
-	if utf8.RuneCountInString(text) > 2000 {
-		return fmt.Errorf("item exceeds 2000 characters")
-	}
-	if strings.ContainsAny(text, "\r\n") {
-		return fmt.Errorf("item must be single-line")
-	}
-	for _, character := range text {
-		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
-			return fmt.Errorf("item must not contain control characters")
+			if len(item.Keywords) > 32 {
+				return fmt.Errorf("kaomoji has more than 32 keywords")
+			}
+			for _, keyword := range item.Keywords {
+				if err := ValidateItem(keyword); err != nil {
+					return fmt.Errorf("keyword: %w", err)
+				}
+			}
 		}
 	}
 	return nil

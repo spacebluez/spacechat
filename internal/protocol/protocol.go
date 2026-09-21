@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
 
 const PageSize = 100
+const RecallWindow = 2 * time.Minute
 
 type Frame struct {
 	Type      string          `json:"type"`
@@ -17,17 +19,22 @@ type Frame struct {
 }
 
 type Message struct {
-	ID        int64  `json:"id"`
-	Nickname  string `json:"nickname"`
-	Body      string `json:"body"`
-	CreatedAt string `json:"created_at"`
+	ID        int64    `json:"id"`
+	Nickname  string   `json:"nickname"`
+	Body      string   `json:"body"`
+	CreatedAt string   `json:"created_at"`
+	Mentions  []string `json:"mentions,omitempty"`
+	Recalled  bool     `json:"recalled,omitempty"`
+	CanRecall bool     `json:"can_recall,omitempty"`
+	OwnerID   string   `json:"-"`
 }
 
 type Join struct {
-	AccessKey  string `json:"access_key"`
-	Nickname   string `json:"nickname"`
-	InstanceID string `json:"instance_id,omitempty"`
-	AfterID    int64  `json:"after_id,omitempty"`
+	AccessKey   string `json:"access_key"`
+	Nickname    string `json:"nickname"`
+	InstanceID  string `json:"instance_id,omitempty"`
+	AfterID     int64  `json:"after_id,omitempty"`
+	ClientToken string `json:"client_token,omitempty"`
 }
 
 type Welcome struct {
@@ -50,6 +57,13 @@ type Query struct {
 
 type Send struct {
 	Body string `json:"body"`
+}
+type Recall struct {
+	MessageID int64 `json:"message_id"`
+}
+type Recalled struct {
+	Message    Message `json:"message"`
+	InstanceID string  `json:"instance_id"`
 }
 type Presence struct {
 	Users []string `json:"users"`

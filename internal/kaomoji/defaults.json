@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "categories": [
+    {"id": "cute", "name": "软萌", "items": [
+      {"text": "(˶ᵔ ᵕ ᵔ˶)", "keywords": ["可爱", "软萌", "微笑", "cute", "soft", "smile"]},
+      {"text": "(｡•ᴗ•｡)", "keywords": ["乖巧", "可爱", "cute"]},
+      {"text": "(◍•ᴗ•◍)", "keywords": ["圆脸", "可爱", "cute"]},
+      {"text": "(ᵔ◡ᵔ)", "keywords": ["微笑", "满足", "smile"]},
+      {"text": "(๑˘ᴗ˘๑)", "keywords": ["幸福", "满足", "cozy"]},
+      {"text": "(｡･ω･｡)", "keywords": ["呆萌", "可爱", "cute"]}
+    ]},
+    {"id": "joy", "name": "开心", "items": [
+      {"text": "(⁎˃ᴗ˂⁎)", "keywords": ["开心", "笑", "happy"]},
+      {"text": "(๑>◡<๑)", "keywords": ["大笑", "高兴", "laugh"]},
+      {"text": "٩(ˊᗜˋ*)و", "keywords": ["庆祝", "yay"]},
+      {"text": "(ﾉ´ヮ`)ﾉ", "keywords": ["欢呼", "好耶", "yay"]},
+      {"text": "(≧◡≦)", "keywords": ["笑眯眯", "开心", "happy"]},
+      {"text": "ヾ(*´∀`*)ﾉ", "keywords": ["雀跃", "开心", "happy"]}
+    ]},
+    {"id": "hello", "name": "问候", "items": [
+      {"text": "(｡•ᴗ•｡)ﾉ", "keywords": ["你好", "挥手", "hello", "hi"]},
+      {"text": "|･ω･)ﾉ", "keywords": ["探头", "冒泡", "在吗", "peek"]},
+      {"text": "ヾ(･ω･*)ﾉ", "keywords": ["再见", "拜拜", "bye"]},
+      {"text": "(人´∀`)", "keywords": ["谢谢", "感谢", "thanks"]},
+      {"text": "(｡-人-｡)", "keywords": ["拜托", "求求", "please"]},
+      {"text": "(⁎˘ᴗ˘⁎)ﾉ", "keywords": ["早安", "早上好", "morning"]}
+    ]},
+    {"id": "love", "name": "贴贴", "items": [
+      {"text": "(づ｡◕‿◕｡)づ", "keywords": ["抱抱", "拥抱", "hug"]},
+      {"text": "(っ´ω`)っ", "keywords": ["贴贴", "抱抱", "hug"]},
+      {"text": "(´｡• ᵕ •｡`)♡", "keywords": ["喜欢", "爱心", "love"]},
+      {"text": "(◍•ᴗ•◍)♡", "keywords": ["比心", "爱你", "heart"]},
+      {"text": "(˘³˘)♡", "keywords": ["亲亲", "飞吻", "kiss"]},
+      {"text": "(っ˘ω˘ς)", "keywords": ["撒娇", "贴贴", "cuddle"]}
+    ]},
+    {"id": "shy", "name": "害羞", "items": [
+      {"text": "(*ﾉωﾉ)", "keywords": ["捂脸", "害羞", "shy"]},
+      {"text": "(〃ω〃)", "keywords": ["脸红", "害羞", "blush"]},
+      {"text": "(´,,•ω•,,)", "keywords": ["腼腆", "害羞", "shy"]},
+      {"text": "(⁎ᵕᴗᵕ⁎)", "keywords": ["低头", "乖巧", "shy"]},
+      {"text": "(*/ω＼*)", "keywords": ["捂脸", "不好意思", "shy"]},
+      {"text": "(//▽//)", "keywords": ["脸红", "偷笑", "blush"]}
+    ]},
+    {"id": "support", "name": "元气", "items": [
+      {"text": "(ง•̀ω•́)ง", "keywords": ["加油", "鼓励", "fight"]},
+      {"text": "(๑•ᴗ•)و", "keywords": ["加油", "支持", "cheer"]},
+      {"text": "(≧▽≦)b", "keywords": ["点赞", "真棒", "good"]},
+      {"text": "(｡•ω-)☆", "keywords": ["眨眼", "收到", "wink", "ok"]},
+      {"text": "٩(๑>◡<๑)۶", "keywords": ["好耶", "成功", "yay"]},
+      {"text": "(๑•̀ㅂ•́)و✧", "keywords": ["冲呀", "努力", "fight"]}
+    ]},
+    {"id": "sad", "name": "委屈", "items": [
+      {"text": "(｡•́︿•̀｡)", "keywords": ["委屈", "难过", "upset"]},
+      {"text": "(っ﹏っ。)", "keywords": ["揉眼睛", "哭", "cry"]},
+      {"text": "(╥﹏╥)", "keywords": ["大哭", "泪目", "cry"]},
+      {"text": "(´；ω；`)", "keywords": ["伤心", "难过", "sad"]},
+      {"text": "(｡╯︵╰｡)", "keywords": ["失落", "难过", "sad"]},
+      {"text": "(つω`｡)", "keywords": ["擦泪", "呜呜", "cry"]}
+    ]},
+    {"id": "funny", "name": "搞怪", "items": [
+      {"text": "(╯°□°)╯︵ ┻━┻", "keywords": ["掀桌", "抓狂", "table", "flip"]},
+      {"text": "┬─┬ノ( º _ ºノ)", "keywords": ["扶桌", "冷静", "table", "calm"]},
+      {"text": "(눈_눈)", "keywords": ["盯", "鄙视", "stare"]},
+      {"text": "(ಡωಡ)", "keywords": ["坏笑", "滑稽", "smirk"]},
+      {"text": "( ͡° ͜ʖ ͡°)", "keywords": ["你懂的", "坏笑", "lenny"]},
+      {"text": "ᕕ( ᐛ )ᕗ", "keywords": ["溜了", "跑路", "run"]},
+      {"text": "_(:з」∠)_", "keywords": ["躺平", "咸鱼", "懒", "lazy"]},
+      {"text": "(ง'̀-'́)ง", "keywords": ["来战", "打架", "fight"]},
+      {"text": "(⌐■_■)", "keywords": ["墨镜", "耍酷", "cool"]},
+      {"text": "(•_•)>⌐■-■", "keywords": ["摘眼镜", "震惊", "glasses"]},
+      {"text": "(☞ﾟヮﾟ)☞", "keywords": ["就是你", "指", "point"]},
+      {"text": "Σ(っ°Д°;)っ", "keywords": ["吓跑", "惊吓", "shock"]}
+    ]},
+    {"id": "classic", "name": "经典", "items": [
+      {"text": "(^_^)", "keywords": ["微笑", "smile"]},
+      {"text": "(≧▽≦)", "keywords": ["开心", "happy"]},
+      {"text": "(´▽｀)", "keywords": ["笑", "laugh"]},
+      {"text": "(￣▽￣)ノ", "keywords": ["挥手", "再见", "wave", "bye"]},
+      {"text": "(づ￣ ³￣)づ", "keywords": ["抱抱", "hug"]},
+      {"text": "(T_T)", "keywords": ["哭", "cry"]},
+      {"text": "(>_<)", "keywords": ["难受", "ouch"]},
+      {"text": "(O_O)", "keywords": ["震惊", "wow"]},
+      {"text": "(¬_¬)", "keywords": ["无语", "whatever"]},
+      {"text": "m(_ _)m", "keywords": ["鞠躬", "道歉", "sorry"]},
+      {"text": "(・_・?)", "keywords": ["疑问", "question"]},
+      {"text": "(￣～￣;)", "keywords": ["思考", "think"]}
+    ]},
+    {"id": "mood", "name": "日常", "items": [
+      {"text": "(⊙ω⊙)", "keywords": ["惊讶", "震惊", "wow"]},
+      {"text": "(｡• . •｡)?", "keywords": ["疑问", "思考", "question", "think"]},
+      {"text": "(¬‿¬)", "keywords": ["偷笑", "得意", "smirk"]},
+      {"text": "(￣︿￣)", "keywords": ["生气", "不满", "angry"]},
+      {"text": "╮(￣▽￣)╭", "keywords": ["摊手", "无语", "shrug"]},
+      {"text": "(－ω－) zzZ", "keywords": ["晚安", "困", "sleep", "tired"]}
+    ]}
+  ]
+}

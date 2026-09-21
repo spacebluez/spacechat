@@ -1,182 +1,172 @@
 package tui
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	"context"
+	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"xchat/internal/client"
 	"xchat/internal/kaomoji"
 )
 
-// kaomojiPicker is the state for the F3 kaomoji selection overlay. It follows
-// the same lightweight state pattern as roomSwitch and is owned by Model.
 type kaomojiPicker struct {
+	search     textinput.Model
+	category   int
+	selected   int
 	categories []kaomoji.Category
-	catIndex   int
-	itemIndex  int
-	focusItems bool
+	notice     string
 }
 
-func (picker *kaomojiPicker) clampItem() {
-	if picker.catIndex < 0 || picker.catIndex >= len(picker.categories) {
-		picker.catIndex = 0
+type kaomojiResult struct {
+	source  *client.Client
+	catalog kaomoji.Catalog
+	err     error
+}
+
+func (model *Model) SetKaomojiOverride(catalog kaomoji.Catalog) {
+	model.catalog = catalog.Clone().Categories
+	model.kaomojiOverride = true
+}
+
+func (model *Model) refreshKaomoji() tea.Cmd {
+	if model.kaomojiOverride || model.catalogLoading || !model.connected || model.network == nil {
+		return nil
 	}
-	items := picker.categories[picker.catIndex].Items
-	if len(items) == 0 {
-		picker.itemIndex = 0
-		return
+	model.catalogLoading = true
+	model.catalogNotice = ""
+	network, ctx := model.network, model.ctx
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	if picker.itemIndex < 0 {
-		picker.itemIndex = 0
-	}
-	if picker.itemIndex >= len(items) {
-		picker.itemIndex = len(items) - 1
+	return func() tea.Msg {
+		catalog, err := network.FetchKaomoji(ctx)
+		return kaomojiResult{source: network, catalog: catalog, err: err}
 	}
 }
 
-func (picker *kaomojiPicker) selected() kaomoji.Item {
-	picker.clampItem()
-	items := picker.categories[picker.catIndex].Items
-	if len(items) == 0 {
-		return kaomoji.Item{}
+func (model *Model) applyKaomoji(result kaomojiResult) tea.Cmd {
+	if result.source != model.network || model.kaomojiOverride {
+		return nil
 	}
-	return items[picker.itemIndex]
-}
-
-func (model *Model) openKaomojiPicker() tea.Cmd {
+	model.catalogLoading = false
+	if result.err != nil {
+		model.catalogNotice = "暂时无法获取表情"
+		if len(model.catalog) > 0 {
+			model.catalogNotice = "表情更新失败，保留已有表情"
+		}
+		return nil
+	}
+	model.catalog, model.catalogNotice = result.catalog.Categories, ""
 	if model.picker != nil {
-		return nil
+		picker := model.picker
+		categoryID, selectedText := "", ""
+		if picker.category >= 0 {
+			categoryID = picker.categories[picker.category].ID
+		}
+		items := picker.matches()
+		if len(items) > 0 {
+			selectedText = items[picker.selected].Text
+		}
+		picker.categories, picker.category, picker.selected = model.catalog, -1, 0
+		for index, category := range picker.categories {
+			if category.ID == categoryID {
+				picker.category = index
+				break
+			}
+		}
+		for index, item := range picker.matches() {
+			if item.Text == selectedText {
+				picker.selected = index
+				break
+			}
+		}
 	}
-	categories := kaomoji.Categories()
-	if len(categories) == 0 {
-		return nil
-	}
-	model.picker = &kaomojiPicker{categories: categories}
-	model.input.Blur()
 	return nil
 }
 
-func (model *Model) closeKaomojiPicker() tea.Cmd {
-	model.picker = nil
-	return model.input.Focus()
+func (model *Model) openKaomojiPicker() tea.Cmd {
+	search := textinput.New()
+	search.Placeholder = "搜索颜文字"
+	search.CharLimit = 40
+	search.Width = max(1, model.width-6)
+	model.picker = &kaomojiPicker{search: search, category: -1, categories: model.catalog}
+	model.input.Blur()
+	return tea.Batch(model.picker.search.Focus(), model.refreshKaomoji())
 }
 
-func (model *Model) insertSelectedKaomoji() tea.Cmd {
-	item := model.picker.selected()
-	model.input.InsertString(item.Text)
-	return model.closeKaomojiPicker()
+func (picker *kaomojiPicker) matches() []kaomoji.Item {
+	query := strings.ToLower(strings.TrimSpace(picker.search.Value()))
+	var items []kaomoji.Item
+	for index, category := range picker.categories {
+		if picker.category >= 0 && picker.category != index {
+			continue
+		}
+		for _, item := range category.Items {
+			search := strings.ToLower(category.Name + " " + item.Text + " " + strings.Join(item.Keywords, " "))
+			if strings.Contains(search, query) {
+				items = append(items, item)
+			}
+		}
+	}
+	picker.selected = min(picker.selected, max(0, len(items)-1))
+	return items
 }
 
 func (model *Model) updateKaomojiPicker(message tea.Msg) tea.Cmd {
 	picker := model.picker
-	if picker == nil {
-		return nil
-	}
-	key, ok := message.(tea.KeyMsg)
-	if !ok {
-		return nil
-	}
-	switch key.String() {
-	case "esc":
-		if model.compactPicker() && picker.focusItems {
-			picker.focusItems = false
+	items := picker.matches()
+	if key, ok := message.(tea.KeyMsg); ok && !key.Paste {
+		switch key.String() {
+		case "esc", "f3":
+			model.picker = nil
+			return model.input.Focus()
+		case "up":
+			picker.selected = max(0, picker.selected-1)
 			return nil
-		}
-		return model.closeKaomojiPicker()
-	case "f3":
-		return model.closeKaomojiPicker()
-	case "enter":
-		if model.compactPicker() && !picker.focusItems {
-			picker.focusItems = true
-			picker.itemIndex = 0
+		case "down":
+			picker.selected = min(max(0, len(items)-1), picker.selected+1)
 			return nil
+		case "pgup":
+			picker.selected = max(0, picker.selected-max(1, model.height-4))
+			return nil
+		case "pgdown":
+			picker.selected = min(max(0, len(items)-1), picker.selected+max(1, model.height-4))
+			return nil
+		case "tab", "shift+tab":
+			delta := 1
+			if key.String() == "shift+tab" {
+				delta = -1
+			}
+			count := len(picker.categories) + 1
+			picker.category = (picker.category+1+delta+count)%count - 1
+			picker.selected = 0
+			return nil
+		case "enter", "ctrl+s":
+			if len(items) == 0 {
+				return nil
+			}
+			text := items[picker.selected].Text
+			accepted := false
+			if key.String() == "ctrl+s" {
+				accepted = model.sendBody(text)
+			} else {
+				accepted = model.insertDraft(text)
+			}
+			if !accepted {
+				picker.notice = model.notice
+				return nil
+			}
+			model.picker = nil
+			return model.input.Focus()
 		}
-		return model.insertSelectedKaomoji()
-	case "tab", "shift+tab", "left", "right":
-		picker.focusItems = !picker.focusItems
-		picker.clampItem()
-		return nil
-	case "up":
-		model.movePickerSelection(false)
-		return nil
-	case "down":
-		model.movePickerSelection(true)
-		return nil
-	case "pgup":
-		model.pagePicker(false)
-		return nil
-	case "pgdown":
-		model.pagePicker(true)
-		return nil
-	case "home":
-		model.pickerHome(false)
-		return nil
-	case "end":
-		model.pickerHome(true)
-		return nil
 	}
-	return nil
-}
-
-func (model *Model) movePickerSelection(forward bool) {
-	picker := model.picker
-	if picker.focusItems {
-		items := picker.categories[picker.catIndex].Items
-		if len(items) == 0 {
-			return
-		}
-		if forward {
-			picker.itemIndex = (picker.itemIndex + 1) % len(items)
-		} else {
-			picker.itemIndex = (picker.itemIndex - 1 + len(items)) % len(items)
-		}
-		return
+	previous := picker.search.Value()
+	var command tea.Cmd
+	picker.search, command = picker.search.Update(message)
+	if previous != picker.search.Value() {
+		picker.selected = 0
+		picker.notice = ""
 	}
-	if len(picker.categories) == 0 {
-		return
-	}
-	if forward {
-		picker.catIndex = (picker.catIndex + 1) % len(picker.categories)
-	} else {
-		picker.catIndex = (picker.catIndex - 1 + len(picker.categories)) % len(picker.categories)
-	}
-	picker.itemIndex = 0
-}
-
-func (model *Model) pagePicker(forward bool) {
-	picker := model.picker
-	if !picker.focusItems {
-		return
-	}
-	items := picker.categories[picker.catIndex].Items
-	if len(items) == 0 {
-		return
-	}
-	page := max(1, model.height-6)
-	if forward {
-		picker.itemIndex = min(len(items)-1, picker.itemIndex+page)
-	} else {
-		picker.itemIndex = max(0, picker.itemIndex-page)
-	}
-}
-
-func (model *Model) pickerHome(end bool) {
-	picker := model.picker
-	if picker.focusItems {
-		items := picker.categories[picker.catIndex].Items
-		if len(items) == 0 {
-			picker.itemIndex = 0
-			return
-		}
-		if end {
-			picker.itemIndex = len(items) - 1
-		} else {
-			picker.itemIndex = 0
-		}
-		return
-	}
-	if end {
-		picker.catIndex = len(picker.categories) - 1
-	} else {
-		picker.catIndex = 0
-	}
-	picker.itemIndex = 0
+	return command
 }

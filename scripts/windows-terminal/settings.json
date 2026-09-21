@@ -1,0 +1,40 @@
+{
+  "$schema": "https://aka.ms/terminal-profiles-schema",
+  "defaultProfile": "{3f80440e-28d7-4f36-9c2a-39d845951770}",
+  "firstWindowPreference": "defaultProfile",
+  "windowingBehavior": "useNew",
+  "theme": "dark",
+  "alwaysShowTabs": false,
+  "initialCols": 100,
+  "initialRows": 30,
+  "disabledProfileSources": [
+    "Windows.Terminal.Azure",
+    "Windows.Terminal.Wsl",
+    "Windows.Terminal.PowershellCore",
+    "Windows.Terminal.SSH",
+    "Windows.Terminal.VisualStudio"
+  ],
+  "profiles": {
+    "defaults": {
+      "font": {
+        "face": "Cascadia Mono, Segoe UI, Segoe UI Symbol, Microsoft YaHei, Malgun Gothic, Leelawadee UI, Nirmala UI, Gadugi, Calibri",
+        "size": 13
+      },
+      "padding": "8",
+      "opacity": 100,
+      "useAcrylic": false,
+      "historySize": 0,
+      "closeOnExit": "always",
+      "bellStyle": "none",
+      "scrollbarState": "hidden"
+    },
+    "list": [
+      {
+        "guid": "{3f80440e-28d7-4f36-9c2a-39d845951770}",
+        "name": "XChat",
+        "commandline": "\"%WT_SETTINGS_DIR%\\..\\..\\xchat-rooms.exe\"",
+        "suppressApplicationTitle": true
+      }
+    ]
+  }
+}

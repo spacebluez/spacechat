@@ -2,6 +2,9 @@ package client
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"xchat/internal/kaomoji"
 	"xchat/internal/protocol"
 )
 
@@ -34,10 +38,21 @@ type Client struct {
 	cursor        int64
 	everConnected bool
 	retryMin      time.Duration
+	options       Options
+	token         string
+	catalogMu     sync.Mutex
+	catalog       *kaomoji.Catalog
+	catalogETag   string
 }
 
-func New(address string) *Client {
-	return &Client{address: address, events: make(chan Event, 128), retryMin: time.Second}
+func New(address string, configuration ...Options) *Client {
+	var options Options
+	if len(configuration) > 0 {
+		options = configuration[0]
+	}
+	var token [32]byte
+	cryptorand.Read(token[:])
+	return &Client{address: address, events: make(chan Event, 128), retryMin: time.Second, options: options, token: hex.EncodeToString(token[:])}
 }
 func ValidateAddress(address string) error {
 	parsed, err := url.Parse(address)
@@ -64,6 +79,12 @@ func (network *Client) Send(requestID, body string) error {
 func (network *Client) History(before int64) error {
 	return network.queue(protocol.Encode("history", "older", protocol.Query{BeforeID: before}))
 }
+func (network *Client) Recall(requestID string, messageID int64) error {
+	if messageID <= 0 {
+		return errors.New("撤回消息编号无效")
+	}
+	return network.queue(protocol.Encode("recall", requestID, protocol.Recall{MessageID: messageID}))
+}
 func (network *Client) queue(frame protocol.Frame) error {
 	network.mu.Lock()
 	defer network.mu.Unlock()
@@ -79,7 +100,7 @@ func (network *Client) queue(frame protocol.Frame) error {
 }
 func (network *Client) Run(ctx context.Context, name, key string) {
 	defer close(network.events)
-	if err := ValidateAddress(network.address); err != nil {
+	if err := ValidateTransport(network.address, network.options.AllowInsecure); err != nil {
 		network.emit(ctx, Event{State: "invalid_address", Detail: err.Error()})
 		return
 	}
@@ -93,6 +114,11 @@ func (network *Client) Run(ctx context.Context, name, key string) {
 		started := time.Now()
 		err := network.connect(ctx, name, key)
 		if ctx.Err() != nil {
+			return
+		}
+		var certificateError *tls.CertificateVerificationError
+		if errors.As(err, &certificateError) {
+			network.emit(ctx, Event{State: "tls_error", Detail: fmt.Sprintf("TLS 证书校验失败：%v", certificateError.Err)})
 			return
 		}
 		var refusal *joinError
@@ -131,7 +157,9 @@ func (network *Client) connect(parent context.Context, name, key string) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	dialContext, dialCancel := context.WithTimeout(ctx, 10*time.Second)
-	connection, _, err := websocket.Dial(dialContext, network.address, nil)
+	httpClient := network.options.httpClient()
+	defer httpClient.CloseIdleConnections()
+	connection, _, err := websocket.Dial(dialContext, network.address, &websocket.DialOptions{HTTPClient: httpClient})
 	dialCancel()
 	if err != nil {
 		return err
@@ -139,7 +167,7 @@ func (network *Client) connect(parent context.Context, name, key string) error {
 	defer connection.CloseNow()
 	connection.SetReadLimit(2 * 1024 * 1024)
 	writeContext, writeCancel := context.WithTimeout(ctx, 10*time.Second)
-	err = wsjson.Write(writeContext, connection, protocol.Encode("join", "join", protocol.Join{Nickname: name, AccessKey: key, InstanceID: network.instance, AfterID: network.cursor}))
+	err = wsjson.Write(writeContext, connection, protocol.Encode("join", "join", protocol.Join{Nickname: name, AccessKey: key, InstanceID: network.instance, AfterID: network.cursor, ClientToken: network.token}))
 	writeCancel()
 	if err != nil {
 		return err
@@ -240,6 +268,16 @@ func (network *Client) connect(parent context.Context, name, key string) error {
 				return ctx.Err()
 			}
 			network.cursor = max(network.cursor, message.ID)
+			continue
+		case "recalled":
+			recalled, err := decode[protocol.Recalled](frame)
+			if err != nil {
+				return err
+			}
+			if !network.emit(ctx, Event{Frame: &frame}) {
+				return ctx.Err()
+			}
+			network.instance = recalled.InstanceID
 			continue
 		case "history_cleared":
 			cleared, err := decode[protocol.Cleared](frame)

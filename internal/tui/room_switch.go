@@ -79,7 +79,7 @@ func (model *Model) submitRoomSwitch() tea.Cmd {
 		dialog.notice = "已在当前房间，无需切换"
 		return nil
 	}
-	if len(model.pending) > 0 {
+	if len(model.pending) > 0 || len(model.recalls) > 0 {
 		dialog.waiting = true
 		dialog.waitingFailed = false
 		dialog.notice = "等待原房间发送结果，Esc 可取消"
@@ -93,7 +93,8 @@ func (model *Model) submitRoomSwitch() tea.Cmd {
 	dialog.waiting = false
 	dialog.confirm = false
 	dialog.notice = "正在进入目标房间…"
-	target := New(model.address)
+	target := New(model.address, model.networkOptions)
+	target.catalog, target.kaomojiOverride = model.catalog, model.kaomojiOverride
 	target.width, target.height = model.width, model.height
 	target.resize()
 	target.name = name
@@ -102,9 +103,10 @@ func (model *Model) submitRoomSwitch() tea.Cmd {
 	target.accessKey.SetValue(key)
 	target.joined = true
 	target.state = "连接中"
-	target.network = client.New(model.address)
+	target.network = model.network.NewPeer()
 	ctx, cancel := context.WithCancel(context.Background())
 	target.cancel = cancel
+	target.ctx = ctx
 	dialog.candidate = target
 	network := target.network
 	return tea.Batch(func() tea.Msg { go network.Run(ctx, name, key); return waitEvent(network)() }, tea.Tick(15*time.Second, func(time.Time) tea.Msg { return roomSwitchTimeout{source: network} }))
@@ -161,7 +163,7 @@ func (model *Model) candidateEvent(event networkEvent) tea.Cmd {
 		return model.failRoomSwitch("目标连接已关闭，请重试；原房间保留")
 	}
 	switch event.event.State {
-	case "unauthorized", "name_taken", "invalid_name", "invalid_address":
+	case "unauthorized", "name_taken", "invalid_name", "invalid_address", "tls_error":
 		return model.failRoomSwitch(event.event.Detail)
 	case "disconnected":
 		return model.failRoomSwitch("进入目标房间失败，请重试；原房间保留")
@@ -177,7 +179,7 @@ func (model *Model) candidateEvent(event networkEvent) tea.Cmd {
 		target.viewport.GotoBottom()
 		*model = *target
 		model.notice = "已切换聊天室"
-		return tea.Batch(waitEvent(model.network), model.input.Focus())
+		return tea.Batch(waitEvent(model.network), model.input.Focus(), model.refreshKaomoji())
 	}
 	return waitEvent(target.network)
 }
@@ -189,7 +191,7 @@ func (model *Model) continueRoomSwitch(event client.Event) tea.Cmd {
 	if event.Frame != nil && event.Frame.Type == "error" {
 		model.switcher.waitingFailed = true
 	}
-	if len(model.pending) > 0 {
+	if len(model.pending) > 0 || len(model.recalls) > 0 {
 		return nil
 	}
 	model.switcher.waiting = false

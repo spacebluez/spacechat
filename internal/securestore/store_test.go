@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -31,7 +32,7 @@ func TestEncryptedRoomsPersistenceAndClear(t *testing.T) {
 		t.Fatal("room leaked")
 	}
 	page, err := first.Page(0, 0, message.ID)
-	if err != nil || len(page.Messages) != 1 || page.Messages[0] != message {
+	if err != nil || len(page.Messages) != 1 || !reflect.DeepEqual(page.Messages[0], message) {
 		t.Fatalf("round trip: %+v %v", page, err)
 	}
 	var payload []byte
@@ -70,7 +71,7 @@ func TestEncryptedRoomsPersistenceAndClear(t *testing.T) {
 		t.Fatal("instance changed across reopen")
 	}
 	page, err = first.Page(0, 0, message.ID)
-	if err != nil || page.Messages[0] != message {
+	if err != nil || !reflect.DeepEqual(page.Messages[0], message) {
 		t.Fatal("reopen failed", err)
 	}
 	deleted, err := database.ClearAll()

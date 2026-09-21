@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"xchat/internal/accesskey"
 	"xchat/internal/client"
+	"xchat/internal/kaomoji"
 	"xchat/internal/protocol"
 )
 
@@ -25,6 +27,14 @@ type networkEvent struct {
 type Model struct {
 	switcher          *roomSwitch
 	picker            *kaomojiPicker
+	catalog           []kaomoji.Category
+	catalogLoading    bool
+	catalogNotice     string
+	kaomojiOverride   bool
+	members           *memberPicker
+	recaller          *recallPicker
+	recalls           map[string]int64
+	networkOptions    client.Options
 	address           string
 	name              string
 	nickname          textinput.Model
@@ -32,6 +42,7 @@ type Model struct {
 	input             textarea.Model
 	viewport          viewport.Model
 	network           *client.Client
+	ctx               context.Context
 	cancel            context.CancelFunc
 	width, height     int
 	joined, connected bool
@@ -44,7 +55,7 @@ type Model struct {
 	sequence          uint64
 }
 
-func New(address string) *Model {
+func New(address string, configuration ...client.Options) *Model {
 	nickname := textinput.New()
 	nickname.Placeholder = "输入昵称（1–20 字符）"
 	nickname.CharLimit = 20
@@ -66,6 +77,10 @@ func New(address string) *Model {
 	input.CharLimit = 2000
 	input.Prompt = "> "
 	model := &Model{address: address, nickname: nickname, accessKey: keyInput, input: input, viewport: viewport.New(70, 15), width: 100, height: 26, pending: make(map[string]string), state: "未连接"}
+	model.recalls = make(map[string]int64)
+	if len(configuration) > 0 {
+		model.networkOptions = configuration[0]
+	}
 	model.resize()
 	return model
 }
@@ -89,10 +104,12 @@ func waitEvent(network *client.Client) tea.Cmd {
 }
 func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch value := message.(type) {
+	case kaomojiResult:
+		return model, model.applyKaomoji(value)
 	case roomSwitchPaste:
 		return model, model.applySwitchPaste(value)
 	case pasteTextMsg:
-		if !model.joined || model.switcher != nil || model.picker != nil || (value.source != nil && value.source != model.network) {
+		if !model.joined || model.switcher != nil || model.picker != nil || model.members != nil || model.recaller != nil || (value.source != nil && value.source != model.network) {
 			return model, nil
 		}
 		if value.err != nil {
@@ -122,7 +139,11 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		model.applyEvent(value.event)
-		return model, tea.Batch(waitEvent(model.network), model.continueRoomSwitch(value.event))
+		var catalogCommand tea.Cmd
+		if value.event.State == "connected" {
+			catalogCommand = model.refreshKaomoji()
+		}
+		return model, tea.Batch(waitEvent(model.network), model.continueRoomSwitch(value.event), catalogCommand)
 	case tea.KeyMsg:
 		if value.Paste {
 			value.Runes = []rune(normalizeNewlines(string(value.Runes)))
@@ -138,11 +159,31 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.picker != nil {
 			return model, model.updateKaomojiPicker(message)
 		}
+		if model.members != nil {
+			return model, model.updateMembers(message)
+		}
+		if model.recaller != nil {
+			return model, model.updateRecall(message)
+		}
 		if model.joined && value.String() == "f2" {
 			return model, model.openRoomSwitch()
 		}
 		if model.joined && value.String() == "f3" {
 			return model, model.openKaomojiPicker()
+		}
+		if model.joined && value.String() == "f4" {
+			return model, model.openMembers()
+		}
+		if model.joined && value.String() == "f5" {
+			return model, model.openRecall()
+		}
+		if model.joined && !value.Paste && value.Type == tea.KeyRunes && string(value.Runes) == "@" && model.mentionBoundary() {
+			if !model.insertDraft("@") {
+				return model, nil
+			}
+			command := model.openMembers()
+			model.members.typedAt = true
+			return model, command
 		}
 		if !model.joined {
 			if value.String() == "tab" || value.String() == "shift+tab" {
@@ -176,9 +217,11 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.nickname.Blur()
 				model.accessKey.Blur()
 				model.input.Focus()
-				model.network = client.New(model.address)
+				model.network = client.New(model.address, model.networkOptions)
 				ctx, cancel := context.WithCancel(context.Background())
 				model.cancel = cancel
+				model.ctx = ctx
+				model.catalogLoading = false
 				network := model.network
 				return model, tea.Batch(textinput.Blink, func() tea.Msg { go network.Run(ctx, name, key); return waitEvent(network)() })
 			}
@@ -194,24 +237,10 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+v", "shift+insert":
 			return model, readRoomClipboard(model.network)
 		case "enter":
-			if !model.connected {
-				model.notice = "连接恢复后才能发送，草稿已保留"
-				return model, nil
-			}
 			body := model.input.Value()
-			if err := protocol.ValidateBody(body); err != nil {
-				model.notice = err.Error()
-				return model, nil
+			if model.sendBody(body) {
+				model.input.Reset()
 			}
-			model.sequence++
-			requestID := fmt.Sprintf("send-%d", model.sequence)
-			if err := model.network.Send(requestID, body); err != nil {
-				model.notice = err.Error()
-				return model, nil
-			}
-			model.pending[requestID] = body
-			model.input.Reset()
-			model.notice = "正在发送…"
 			return model, nil
 		case "pgup":
 			model.viewport.PageUp()
@@ -229,7 +258,7 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 	case tea.MouseMsg:
-		if model.switcher != nil {
+		if model.switcher != nil || model.picker != nil || model.members != nil || model.recaller != nil {
 			return model, nil
 		}
 		var command tea.Cmd
@@ -240,6 +269,15 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	if model.switcher != nil {
 		return model, model.updateRoomSwitch(message)
 	}
+	if model.picker != nil {
+		return model, model.updateKaomojiPicker(message)
+	}
+	if model.members != nil {
+		return model, model.updateMembers(message)
+	}
+	if model.recaller != nil {
+		return model, nil
+	}
 	var command tea.Cmd
 	if model.joined {
 		model.input, command = model.input.Update(message)
@@ -249,6 +287,25 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.nickname, command = model.nickname.Update(message)
 	}
 	return model, command
+}
+func (model *Model) sendBody(body string) bool {
+	if !model.connected || model.network == nil {
+		model.notice = "连接恢复后才能发送，草稿已保留"
+		return false
+	}
+	if err := protocol.ValidateBody(body); err != nil {
+		model.notice = err.Error()
+		return false
+	}
+	model.sequence++
+	requestID := fmt.Sprintf("send-%d", model.sequence)
+	if err := model.network.Send(requestID, body); err != nil {
+		model.notice = err.Error()
+		return false
+	}
+	model.pending[requestID] = body
+	model.notice = "正在发送…"
+	return true
 }
 func (model *Model) loadOlder() {
 	if !model.viewport.AtTop() || !model.hasMore || model.loading || !model.connected || len(model.messages) == 0 || model.network == nil {
@@ -278,6 +335,10 @@ func (model *Model) applyEvent(event client.Event) {
 			model.loading = false
 			model.state = "重连中"
 			model.notice = "连接断开，正在重连…"
+			if len(model.recalls) > 0 {
+				model.notice = "撤回结果未知，重连后将核对历史"
+				clear(model.recalls)
+			}
 			if len(model.pending) > 0 {
 				model.notice = "部分消息结果未知，不会自动重发；请在重连后核对历史"
 				for _, body := range model.pending {
@@ -294,7 +355,7 @@ func (model *Model) applyEvent(event client.Event) {
 			model.nickname.Blur()
 			model.accessKey.Focus()
 			model.input.Blur()
-		case "name_taken", "invalid_name", "invalid_address":
+		case "name_taken", "invalid_name", "invalid_address", "tls_error":
 			model.connected = false
 			model.joined = false
 			model.notice = event.Detail
@@ -313,6 +374,11 @@ func (model *Model) applyEvent(event client.Event) {
 		model.messages = nil
 		model.issues = nil
 		clear(model.pending)
+		clear(model.recalls)
+		model.recaller = nil
+		if model.switcher == nil && model.picker == nil && model.members == nil {
+			model.input.Focus()
+		}
 		model.hasMore = false
 		model.loading = false
 		model.connected = true
@@ -328,6 +394,7 @@ func (model *Model) applyEvent(event client.Event) {
 		if !welcome.Resumed {
 			model.issues = nil
 			clear(model.pending)
+			clear(model.recalls)
 			model.messages = nil
 			model.hasMore = false
 			model.loading = false
@@ -365,12 +432,31 @@ func (model *Model) applyEvent(event client.Event) {
 		if frame.RequestID != "" && len(model.pending) == 0 {
 			model.notice = ""
 		}
+		if frame.Type == "message" && !received.Recalled && slices.Contains(received.Mentions, model.name) && received.Nickname != model.name {
+			model.notice = received.Nickname + " 提到了你"
+		}
+	case "recalled":
+		var recalled protocol.Recalled
+		if json.Unmarshal(frame.Payload, &recalled) != nil {
+			return
+		}
+		delete(model.recalls, frame.RequestID)
+		for i := range model.messages {
+			if model.messages[i].ID == recalled.Message.ID {
+				model.messages[i] = recalled.Message
+			}
+		}
+		if frame.RequestID != "" {
+			model.notice = "消息已撤回"
+		}
+		model.refresh(false)
 	case "error":
 		var failure protocol.Failure
 		if json.Unmarshal(frame.Payload, &failure) != nil {
 			return
 		}
 		model.notice = failure.Message
+		delete(model.recalls, frame.RequestID)
 		if body, exists := model.pending[frame.RequestID]; exists {
 			model.issues = append(model.issues, "发送失败 · "+body+" · "+failure.Message)
 			delete(model.pending, frame.RequestID)
@@ -382,14 +468,18 @@ func (model *Model) applyEvent(event client.Event) {
 	}
 }
 func (model *Model) merge(incoming []protocol.Message) {
-	known := make(map[int64]bool, len(model.messages))
-	for _, message := range model.messages {
-		known[message.ID] = true
+	known := make(map[int64]int, len(model.messages))
+	for i, message := range model.messages {
+		known[message.ID] = i
 	}
 	for _, message := range incoming {
-		if !known[message.ID] {
+		if i, exists := known[message.ID]; exists {
+			if !model.messages[i].Recalled {
+				model.messages[i] = message
+			}
+		} else {
+			known[message.ID] = len(model.messages)
 			model.messages = append(model.messages, message)
-			known[message.ID] = true
 		}
 	}
 	sort.Slice(model.messages, func(left, right int) bool { return model.messages[left].ID < model.messages[right].ID })

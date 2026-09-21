@@ -45,3 +45,16 @@ func TestNativeRoomSwitchAndEscape(t *testing.T) {
 		t.Fatal("standalone Escape was swallowed")
 	}
 }
+
+func TestNativeChatFeatureKeys(t *testing.T) {
+	for virtual, kind := range map[coninput.VirtualKeyCode]tea.KeyType{coninput.VK_F3: tea.KeyF3, coninput.VK_F4: tea.KeyF4, coninput.VK_F5: tea.KeyF5} {
+		message := keyMessage(coninput.KeyEventRecord{KeyDown: true, VirtualKeyCode: virtual})
+		if message.Type != kind {
+			t.Fatalf("native key %v decoded as %v", virtual, message)
+		}
+	}
+	message := keyMessage(coninput.KeyEventRecord{KeyDown: true, Char: 19, ControlKeyState: coninput.LEFT_CTRL_PRESSED})
+	if message.Type != tea.KeyCtrlS {
+		t.Fatal("Ctrl+S not preserved")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -35,13 +36,15 @@ type Server struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	closed         bool
+	kaomoji        *kaomojiSource
 	accessKeyHash  [32]byte
 	authConfigured bool
 }
 
 func New(repository Repository, key string) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Server{repository: repository, sessions: make(map[string]*session), ctx: ctx, cancel: cancel, accessKeyHash: sha256.Sum256([]byte(key)), authConfigured: key != ""}
+	catalog, _ := newKaomojiSource("")
+	return &Server{repository: repository, sessions: make(map[string]*session), ctx: ctx, cancel: cancel, accessKeyHash: sha256.Sum256([]byte(key)), authConfigured: key != "", kaomoji: catalog}
 }
 func (service *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -60,6 +63,7 @@ func (service *Server) Handler() http.Handler {
 		writer.Write([]byte("{\"status\":\"ok\"}\n"))
 	})
 	mux.HandleFunc("GET /ws", service.serveConnection)
+	mux.HandleFunc("GET /api/kaomoji", service.serveKaomoji)
 	return mux
 }
 func (service *Server) Close() {
@@ -126,6 +130,14 @@ func (service *Server) join(client *session, join protocol.Join) protocol.Failur
 	if err := protocol.ValidateName(join.Nickname); err != nil {
 		return protocol.Failure{Code: "invalid_name", Message: err.Error()}
 	}
+	if join.ClientToken != "" {
+		token, err := hex.DecodeString(join.ClientToken)
+		if err != nil || len(token) != 32 {
+			return protocol.Failure{Code: "invalid_join", Message: "客户端身份格式错误"}
+		}
+		hash := sha256.Sum256(token)
+		client.owner = hex.EncodeToString(hash[:])
+	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if service.closed {
@@ -161,6 +173,7 @@ func (service *Server) join(client *session, join protocol.Join) protocol.Failur
 	if err != nil {
 		return protocol.Failure{Code: "storage_error", Message: "无法读取历史"}
 	}
+	page = client.visiblePage(page)
 	client.name = join.Nickname
 	client.through = latest
 	client.syncing = resumed
@@ -248,7 +261,13 @@ func (service *Server) handle(client *session, frame protocol.Frame) {
 			fail("invalid_message", err.Error())
 			return
 		}
-		message, err := client.repository.Append(client.name, request.Body)
+		var message protocol.Message
+		var err error
+		if room, ok := client.repository.(*securestore.Room); ok {
+			message, err = room.AppendChat(client.name, request.Body, client.owner, protocol.FindMentions(request.Body, service.users(client.room)))
+		} else {
+			message, err = client.repository.Append(client.name, request.Body)
+		}
 		if err != nil {
 			slog.Error("persist message", "error", err)
 			fail("storage_error", "保存失败，消息未发送")
@@ -262,9 +281,11 @@ func (service *Server) handle(client *session, frame protocol.Frame) {
 			if recipient == client {
 				requestID = frame.RequestID
 			}
-			recipient.deliver(protocol.Encode("message", requestID, message))
+			recipient.deliver(protocol.Encode("message", requestID, recipient.visibleMessage(message)))
 		}
-		client.enqueue(protocol.Encode("ack", frame.RequestID, message))
+		client.enqueue(protocol.Encode("ack", frame.RequestID, client.visibleMessage(message)))
+	case "recall":
+		service.recall(client, frame, fail)
 	case "history":
 		if client.syncing {
 			fail("syncing", "请等待同步结束")
@@ -285,7 +306,7 @@ func (service *Server) handle(client *session, frame protocol.Frame) {
 			fail("storage_error", "读取历史失败")
 			return
 		}
-		client.enqueue(protocol.Encode("history", frame.RequestID, page))
+		client.enqueue(protocol.Encode("history", frame.RequestID, client.visiblePage(page)))
 	case "sync":
 		if !client.syncing {
 			return
@@ -301,7 +322,7 @@ func (service *Server) handle(client *session, frame protocol.Frame) {
 			client.cancel()
 			return
 		}
-		client.enqueue(protocol.Encode("sync", frame.RequestID, page))
+		client.enqueue(protocol.Encode("sync", frame.RequestID, client.visiblePage(page)))
 		if len(page.Messages) > 0 {
 			client.cursor = page.Messages[len(page.Messages)-1].ID
 		}

@@ -1,57 +1,52 @@
 package kaomoji
 
 import (
+	"bytes"
 	"testing"
 	"unicode/utf8"
 )
 
 func TestConfigFileLoadsAndValidates(t *testing.T) {
-	if err := LoadFile("../../config/kaomoji.json"); err != nil {
+	catalog, err := ReadFile("defaults.json")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateCatalog(); err != nil {
-		t.Fatal(err)
-	}
-	categories := Categories()
+	categories := catalog.Categories
 	if len(categories) == 0 {
 		t.Fatal("config file produced an empty catalog")
 	}
 }
 
-func TestLoadReplacesCatalogAndCategoriesReturnsCopy(t *testing.T) {
+func TestParseAndCloneKeepCatalogsIndependent(t *testing.T) {
 	document := []byte(`{
 		"version": 1,
 		"categories": [
 			{"id": "happy", "name": "开心", "items": [{"text": "(◕‿◕✿)"}, {"text": "(*^▽^*)"}]}
 		]
 	}`)
-	if err := Load(document); err != nil {
+	catalog, err := Parse(document)
+	if err != nil {
 		t.Fatal(err)
 	}
-	categories := Categories()
+	categories := catalog.Clone().Categories
 	if len(categories) != 1 || categories[0].ID != "happy" || len(categories[0].Items) != 2 {
 		t.Fatalf("unexpected catalog: %+v", categories)
 	}
 	categories[0].Name = "mutated"
 	categories[0].Items[0].Text = "mutated"
-	loaded := Categories()
+	loaded := catalog.Categories
 	if loaded[0].Name == "mutated" || loaded[0].Items[0].Text == "mutated" {
-		t.Fatal("Categories exposed mutable catalog state")
+		t.Fatal("Clone exposed mutable catalog state")
 	}
 }
 
-func TestLoadRejectsInvalidDocuments(t *testing.T) {
-	valid := []byte(`{"version":1,"categories":[{"id":"happy","name":"开心","items":[{"text":"(◕‿◕✿)"}]}]}`)
-	if err := Load(valid); err != nil {
-		t.Fatal(err)
-	}
-	before := Categories()
-
+func TestParseRejectsInvalidDocuments(t *testing.T) {
 	cases := map[string]string{
 		"bad json":          `{`,
 		"wrong version":     `{"version":2,"categories":[{"id":"happy","name":"开心","items":[{"text":"x"}]}]}`,
 		"empty categories":  `{"version":1,"categories":[]}`,
 		"empty id":          `{"version":1,"categories":[{"id":" ","name":"开心","items":[{"text":"x"}]}]}`,
+		"control in id":     `{"version":1,"categories":[{"id":"a\u001b","name":"开心","items":[{"text":"x"}]}]}`,
 		"duplicate ids":     `{"version":1,"categories":[{"id":"a","name":"开心","items":[{"text":"x"}]},{"id":"a","name":"难过","items":[{"text":"y"}]}]}`,
 		"empty name":        `{"version":1,"categories":[{"id":"a","name":" ","items":[{"text":"x"}]}]}`,
 		"empty items":       `{"version":1,"categories":[{"id":"a","name":"开心","items":[]}]}`,
@@ -61,15 +56,14 @@ func TestLoadRejectsInvalidDocuments(t *testing.T) {
 	}
 	for name, document := range cases {
 		t.Run(name, func(t *testing.T) {
-			if err := Load([]byte(document)); err == nil {
+			if _, err := Parse([]byte(document)); err == nil {
 				t.Fatal("accepted invalid catalog")
 			}
 		})
 	}
 
-	after := Categories()
-	if len(after) != len(before) || after[0].Items[0].Text != before[0].Items[0].Text {
-		t.Fatal("failed load mutated the active catalog")
+	if _, err := Parse(bytes.Repeat([]byte(" "), MaxCatalogBytes+1)); err == nil {
+		t.Fatal("accepted oversized catalog")
 	}
 }
 

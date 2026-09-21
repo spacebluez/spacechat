@@ -15,8 +15,17 @@ func keyMessage(event coninput.KeyEventRecord) tea.KeyMsg {
 	shift := event.ControlKeyState.Contains(coninput.SHIFT_PRESSED)
 	control := event.ControlKeyState.Contains(coninput.LEFT_CTRL_PRESSED | coninput.RIGHT_CTRL_PRESSED)
 	alt := event.ControlKeyState.Contains(coninput.LEFT_ALT_PRESSED | coninput.RIGHT_ALT_PRESSED)
-	if event.VirtualKeyCode == coninput.VK_F2 && !shift && !control && !alt {
-		return tea.KeyMsg{Type: tea.KeyF2}
+	if !shift && !control && !alt {
+		switch event.VirtualKeyCode {
+		case coninput.VK_F2:
+			return tea.KeyMsg{Type: tea.KeyF2}
+		case coninput.VK_F3:
+			return tea.KeyMsg{Type: tea.KeyF3}
+		case coninput.VK_F4:
+			return tea.KeyMsg{Type: tea.KeyF4}
+		case coninput.VK_F5:
+			return tea.KeyMsg{Type: tea.KeyF5}
+		}
 	}
 	if event.Char == '\n' {
 		return tea.KeyMsg{Type: tea.KeyCtrlJ}
@@ -118,6 +127,9 @@ func (decoder *pasteDecoder) flushPrefix(now time.Time, send func(tea.Msg)) {
 }
 
 func Run(model tea.Model) error {
+	if launched, err := launchUnicodeHost(); launched || err != nil {
+		return err
+	}
 	output := windows.Handle(os.Stdout.Fd())
 	var originalOutput uint32
 	if err := windows.GetConsoleMode(output, &originalOutput); err == nil {

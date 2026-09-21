@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,7 +36,13 @@ func (model *Model) refresh(prepend bool) {
 			nameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("121")).Bold(true)
 		}
 		heading := muted.Render(timestamp) + "  " + nameStyle.Render(message.Nickname)
-		lines = append(lines, ansi.Hardwrap(heading, model.viewport.Width, true), ansi.Hardwrap(message.Body, model.viewport.Width, true), "")
+		body := message.Body
+		if message.Recalled {
+			body = muted.Render("消息已撤回")
+		} else if slices.Contains(message.Mentions, model.name) {
+			heading += warning.Render("  @你")
+		}
+		lines = append(lines, ansi.Hardwrap(heading, model.viewport.Width, true), ansi.Hardwrap(body, model.viewport.Width, true), "")
 	}
 	for _, issue := range model.issues {
 		lines = append(lines, warning.Render(ansi.Hardwrap(issue, model.viewport.Width, true)))
@@ -59,11 +66,22 @@ func (model *Model) View() string {
 	if model.picker != nil {
 		return model.kaomojiView()
 	}
+	if model.members != nil {
+		return model.membersView()
+	}
+	if model.recaller != nil {
+		return model.recallView()
+	}
 	width := max(20, model.width-4)
 	if !model.joined {
 		return model.loginView()
 	}
 	header := accent.Render(" XCHAT ") + muted.Render("口令房间") + "  " + model.state + fmt.Sprintf(" · %d 人", len(model.users))
+	if strings.HasPrefix(model.address, "wss://") {
+		header += " · TLS"
+	} else {
+		header += " · 明文"
+	}
 	if len(model.pending) > 0 {
 		header += fmt.Sprintf(" · 待确认 %d", len(model.pending))
 	}
