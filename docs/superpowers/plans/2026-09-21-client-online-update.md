@@ -40,7 +40,7 @@
 - Produces: `VerifyManifest(raw, signature []byte, publicKey ed25519.PublicKey) (Manifest, error)`.
 - Produces: `Manifest.Artifact(goos, goarch string) (Artifact, error)` and `MaxArtifactSize = 128 << 20`.
 
-- [ ] **Step 1: Write failing strict-version tests**
+- [x] **Step 1: Write failing strict-version tests**
 
 ```go
 func TestParseVersionAndDecision(t *testing.T) {
@@ -62,13 +62,13 @@ func TestParseVersionAndDecision(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the version test and verify RED**
+- [x] **Step 2: Run the version test and verify RED**
 
 Run: `go test ./internal/update -run TestParseVersionAndDecision -count=1`
 
 Expected: FAIL because `ParseVersion` and `DecisionFor` do not exist.
 
-- [ ] **Step 3: Implement strict versions and decisions**
+- [x] **Step 3: Implement strict versions and decisions**
 
 ```go
 type Version struct { Major, Minor, Patch uint64 }
@@ -90,7 +90,7 @@ func DecisionFor(current, latest, minimum Version) Decision {
 
 Parse with a three-capture regular expression, reject leading zeroes except the single digit `0`, and use `strconv.ParseUint` with overflow errors preserved.
 
-- [ ] **Step 4: Write failing manifest verification tests**
+- [x] **Step 4: Write failing manifest verification tests**
 
 ```go
 func TestVerifyManifestAndSelectArtifact(t *testing.T) {
@@ -107,13 +107,13 @@ func TestVerifyManifestAndSelectArtifact(t *testing.T) {
 
 Add table cases for unknown JSON fields, trailing JSON, schema other than `1`, minimum newer than latest, missing platform, unsafe filenames, uppercase or malformed digest, zero/oversized files, unsupported OS/architecture, and control characters in release notes.
 
-- [ ] **Step 5: Run manifest tests and verify RED**
+- [x] **Step 5: Run manifest tests and verify RED**
 
 Run: `go test ./internal/update -run 'TestVerifyManifest|TestManifestValidation' -count=1`
 
 Expected: FAIL because the manifest API does not exist.
 
-- [ ] **Step 6: Implement signed manifest parsing**
+- [x] **Step 6: Implement signed manifest parsing**
 
 ```go
 type Artifact struct {
@@ -133,7 +133,7 @@ const MaxArtifactSize int64 = 128 << 20
 
 Verify key and signature lengths, call `ed25519.Verify` before JSON decoding, use `json.Decoder.DisallowUnknownFields`, require EOF, validate both platform entries, and require `filepath.Base(file) == file` plus no slash or backslash.
 
-- [ ] **Step 7: Run the package tests and commit**
+- [x] **Step 7: Run the package tests and commit**
 
 Run: `go test ./internal/update -count=1`
 
