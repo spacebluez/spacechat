@@ -36,6 +36,14 @@ class RoomsDeploymentTests(unittest.TestCase):
             self.assertIn(expected, installer)
         self.assertIn('install -m 0644 "$release/update-public.key"', installer)
         self.assertLess(installer.index("-validate-updates"), installer.index("updates.previous"))
+        for backup in (
+            "/opt/xchat-rooms/clear_history.py.previous",
+            "/etc/systemd/system/xchat-rooms.service.previous",
+            "/etc/systemd/system/xchat-rooms-cleanup.service.previous",
+            "/etc/systemd/system/xchat-rooms-cleanup.timer.previous",
+        ):
+            self.assertIn(backup, installer)
+        self.assertIn("systemctl restart xchat-rooms-cleanup.timer || true", installer)
 
         service = (root / "rooms" / "xchat-rooms.service").read_text(encoding="utf-8")
         self.assertIn("-update-dir /opt/xchat-rooms/updates", service)

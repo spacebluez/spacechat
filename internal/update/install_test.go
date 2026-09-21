@@ -2,10 +2,13 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func testInstallLayout(t *testing.T) Layout {
@@ -103,6 +106,103 @@ func TestInstallerFailurePreservesCurrentVersion(t *testing.T) {
 	}
 	if _, err = os.Stat(layout.Lock); !os.IsNotExist(err) {
 		t.Fatalf("update lock remains: %v", err)
+	}
+}
+
+func TestInstallerRecoversVerifiedInactiveTargetAfterInterruptedSwitch(t *testing.T) {
+	server, publicKey := signedRemoteServer(t, []byte("windows"), []byte("linux"))
+	current, _ := ParseVersion("0.3.2")
+	layout := testInstallLayout(t)
+	if err := WriteCurrent(layout, current); err != nil {
+		t.Fatal(err)
+	}
+	remote := Remote{PublicKey: publicKey}
+	check, err := remote.Check(context.Background(), websocketAddress(server), current, "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := layout.ClientPath(check.Latest, "linux")
+	if err = os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(target, []byte("linux"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	selfChecks := 0
+	installer := Installer{Layout: layout, Remote: remote, GOOS: "linux", SelfCheck: func(context.Context, string) error {
+		selfChecks++
+		return nil
+	}}
+	result, err := installer.Install(context.Background(), check)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := ReadCurrent(layout)
+	if err != nil || active != check.Latest || result.Shared || selfChecks != 1 {
+		t.Fatalf("active=%v result=%+v checks=%d err=%v", active, result, selfChecks, err)
+	}
+}
+
+func TestInstallerReplacesCorruptInactiveTarget(t *testing.T) {
+	server, publicKey := signedRemoteServer(t, []byte("windows"), []byte("linux"))
+	current, _ := ParseVersion("0.3.2")
+	layout := testInstallLayout(t)
+	if err := WriteCurrent(layout, current); err != nil {
+		t.Fatal(err)
+	}
+	remote := Remote{PublicKey: publicKey}
+	check, err := remote.Check(context.Background(), websocketAddress(server), current, "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := layout.ClientPath(check.Latest, "linux")
+	if err = os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(target, []byte("xxxxx"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	installer := Installer{Layout: layout, Remote: remote, GOOS: "linux", SelfCheck: func(context.Context, string) error { return nil }}
+	if _, err = installer.Install(context.Background(), check); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(target)
+	if err != nil || string(contents) != "linux" {
+		t.Fatalf("recovered target=%q err=%v", contents, err)
+	}
+}
+
+func TestInstallerReusesTargetCompletedByConcurrentUpdater(t *testing.T) {
+	layout := testInstallLayout(t)
+	oldVersion, _ := ParseVersion("0.3.2")
+	latest, _ := ParseVersion("0.4.0")
+	if err := WriteCurrent(layout, latest); err != nil {
+		t.Fatal(err)
+	}
+	target, _ := layout.ClientPath(latest, "linux")
+	if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+		t.Fatal(err)
+	}
+	contents := []byte("linux")
+	if err := os.WriteFile(target, contents, 0755); err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256(contents)
+	check := Check{
+		Current: oldVersion, Latest: latest,
+		Artifact: Artifact{File: filepath.Base(target), Size: int64(len(contents)), SHA256: hex.EncodeToString(hash[:])},
+	}
+	lock, err := Acquire(layout, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	result, err := (Installer{Layout: layout, GOOS: "linux"}).Install(context.Background(), check)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Shared || result.Path != target || result.Target != latest {
+		t.Fatalf("concurrent result = %+v", result)
 	}
 }
 

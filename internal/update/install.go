@@ -2,8 +2,11 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,11 +25,15 @@ type InstallResult struct {
 	Path     string
 	Previous Version
 	Target   Version
+	Shared   bool
 }
 
 func (installer Installer) Install(ctx context.Context, check Check) (result InstallResult, resultError error) {
 	lock, err := Acquire(installer.Layout, time.Now())
 	if err != nil {
+		if errors.Is(err, ErrUpdateLocked) {
+			return installer.completedByAnother(check)
+		}
 		return InstallResult{}, err
 	}
 	defer lock.Release()
@@ -34,17 +41,39 @@ func (installer Installer) Install(ctx context.Context, check Check) (result Ins
 	if err != nil {
 		return InstallResult{}, err
 	}
-	if active != check.Current {
-		return InstallResult{}, errors.New("active client version changed during update")
-	}
 	targetPath, err := installer.Layout.ClientPath(check.Latest, installer.GOOS)
 	if err != nil {
 		return InstallResult{}, err
 	}
 	targetDirectory := filepath.Dir(targetPath)
-	if _, err = os.Lstat(targetDirectory); err == nil {
-		return InstallResult{}, errors.New("target client version already exists")
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if active == check.Latest {
+		if err = verifyInstalledArtifact(targetPath, check.Artifact); err != nil {
+			return InstallResult{}, fmt.Errorf("verify concurrently installed client: %w", err)
+		}
+		return InstallResult{Path: targetPath, Previous: check.Current, Target: check.Latest, Shared: true}, nil
+	}
+	if active != check.Current {
+		return InstallResult{}, errors.New("active client version changed during update")
+	}
+	if targetInfo, statError := os.Lstat(targetDirectory); statError == nil {
+		if !targetInfo.IsDir() || targetInfo.Mode()&os.ModeSymlink != 0 {
+			return InstallResult{}, errors.New("inactive target version is not a safe directory")
+		}
+		if verifyError := verifyInstalledArtifact(targetPath, check.Artifact); verifyError == nil {
+			if checkError := installer.runSelfCheck(ctx, targetPath); checkError == nil {
+				if err = WriteCurrent(installer.Layout, check.Latest); err != nil {
+					return InstallResult{}, err
+				}
+				return InstallResult{Path: targetPath, Previous: active, Target: check.Latest}, nil
+			}
+		}
+		if err = os.RemoveAll(targetDirectory); err != nil {
+			return InstallResult{}, fmt.Errorf("remove incomplete target version: %w", err)
+		}
+	} else if !errors.Is(statError, os.ErrNotExist) {
+		return InstallResult{}, statError
+	}
+	if err = os.MkdirAll(installer.Layout.Versions, 0700); err != nil {
 		return InstallResult{}, err
 	}
 	if err = os.MkdirAll(installer.Layout.Temp, 0700); err != nil {
@@ -66,41 +95,96 @@ func (installer Installer) Install(ctx context.Context, check Check) (result Ins
 	if err = installer.Remote.Download(ctx, check.Server, check.Artifact, temporaryPath, installer.Progress); err != nil {
 		return InstallResult{}, err
 	}
-	if err = os.MkdirAll(targetDirectory, 0700); err != nil {
+	stagingDirectory, err := os.MkdirTemp(installer.Layout.Versions, "."+check.Latest.String()+"-")
+	if err != nil {
 		return InstallResult{}, err
 	}
-	installed := false
+	stagingPath := filepath.Join(stagingDirectory, filepath.Base(targetPath))
+	promoted := false
 	defer func() {
-		if resultError != nil && !installed {
+		if stagingDirectory != "" {
+			_ = os.RemoveAll(stagingDirectory)
+		}
+		if resultError != nil && promoted {
 			os.RemoveAll(targetDirectory)
 		}
 	}()
+	if err = os.Rename(temporaryPath, stagingPath); err != nil {
+		return InstallResult{}, err
+	}
 	if installer.GOOS == "linux" {
-		if err = os.Chmod(temporaryPath, 0755); err != nil {
+		if err = os.Chmod(stagingPath, 0755); err != nil {
 			return InstallResult{}, err
 		}
 	}
-	if err = os.Rename(temporaryPath, targetPath); err != nil {
-		return InstallResult{}, err
-	}
-	selfCheck := installer.SelfCheck
-	if selfCheck == nil {
-		selfCheck = func(ctx context.Context, path string) error {
-			command := exec.CommandContext(ctx, path, "--self-check")
-			return command.Run()
-		}
-	}
-	if err = selfCheck(ctx, targetPath); err != nil {
+	if err = installer.runSelfCheck(ctx, stagingPath); err != nil {
 		return InstallResult{}, fmt.Errorf("new client self-check: %w", err)
 	}
+	if err = os.Rename(stagingDirectory, targetDirectory); err != nil {
+		return InstallResult{}, err
+	}
+	stagingDirectory = ""
+	promoted = true
 	if err = WriteCurrent(installer.Layout, check.Latest); err != nil {
 		return InstallResult{}, err
 	}
-	installed = true
 	return InstallResult{Path: targetPath, Previous: active, Target: check.Latest}, nil
 }
 
+func (installer Installer) runSelfCheck(ctx context.Context, path string) error {
+	if installer.SelfCheck != nil {
+		return installer.SelfCheck(ctx, path)
+	}
+	command := exec.CommandContext(ctx, path, "--self-check")
+	return command.Run()
+}
+
+func (installer Installer) completedByAnother(check Check) (InstallResult, error) {
+	active, err := ReadCurrent(installer.Layout)
+	if err != nil || active != check.Latest {
+		return InstallResult{}, ErrUpdateLocked
+	}
+	targetPath, err := installer.Layout.ClientPath(check.Latest, installer.GOOS)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	if err = verifyInstalledArtifact(targetPath, check.Artifact); err != nil {
+		return InstallResult{}, fmt.Errorf("verify concurrently installed client: %w", err)
+	}
+	confirmed, err := ReadCurrent(installer.Layout)
+	if err != nil || confirmed != check.Latest {
+		return InstallResult{}, ErrUpdateLocked
+	}
+	return InstallResult{Path: targetPath, Previous: check.Current, Target: check.Latest, Shared: true}, nil
+}
+
+func verifyInstalledArtifact(path string, artifact Artifact) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() != artifact.Size {
+		return errors.New("installed artifact metadata does not match manifest")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err = io.Copy(hash, file); err != nil {
+		return err
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != artifact.SHA256 {
+		return errors.New("installed artifact digest does not match manifest")
+	}
+	return nil
+}
+
 func (installer Installer) Rollback(result InstallResult) error {
+	if result.Shared {
+		return errors.New("refusing to roll back another updater's installation")
+	}
 	lock, err := Acquire(installer.Layout, time.Now())
 	if err != nil {
 		return err

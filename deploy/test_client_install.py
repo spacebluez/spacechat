@@ -23,6 +23,7 @@ class ClientInstallerTests(unittest.TestCase):
             'SetEnvironmentVariable("Path"',
             '"User")',
             "--self-check",
+            '"spacechat $Version"',
             "Move-Item",
         ):
             self.assertIn(expected, source)
@@ -40,6 +41,7 @@ class ClientInstallerTests(unittest.TestCase):
             '"$install_root/current"',
             "target_client=$target/spacechat-client",
             "--self-check",
+            '"spacechat $version"',
             "mv -f",
             "wss://*|ws://*",
         ):
@@ -66,7 +68,10 @@ class ClientInstallerTests(unittest.TestCase):
             launcher = package / "spacechat"
             client = package / "spacechat-client"
             launcher.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            client.write_text('#!/bin/sh\n[ "$1" = "--self-check" ]\n', encoding="utf-8")
+            client.write_text(
+                '#!/bin/sh\ncase "$1" in --version) echo "spacechat 1.2.3" ;; --self-check) exit 0 ;; *) exit 1 ;; esac\n',
+                encoding="utf-8",
+            )
             launcher.chmod(0o755)
             client.chmod(0o755)
             environment = os.environ.copy()
@@ -99,6 +104,33 @@ class ClientInstallerTests(unittest.TestCase):
             self.assertEqual("1.2.3\n", current.read_text(encoding="ascii"))
             self.assertTrue(os.access(installed_client, os.X_OK))
             self.assertTrue(os.access(home / ".local" / "bin" / "spacechat", os.X_OK))
+
+    def test_linux_installer_rejects_package_version_mismatch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary = pathlib.Path(temporary)
+            package = temporary / "package"
+            home = temporary / "home"
+            package.mkdir()
+            home.mkdir()
+            (package / "spacechat").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            (package / "spacechat-client").write_text(
+                '#!/bin/sh\ncase "$1" in --version) echo "spacechat 9.9.9" ;; --self-check) exit 0 ;; esac\n',
+                encoding="utf-8",
+            )
+            (package / "spacechat").chmod(0o755)
+            (package / "spacechat-client").chmod(0o755)
+            environment = os.environ.copy()
+            environment.update({"HOME": str(home), "XDG_CONFIG_HOME": str(temporary / "config"), "XDG_DATA_HOME": str(temporary / "data")})
+            result = subprocess.run(
+                ["sh", str(ROOT / "deploy" / "client" / "install.sh"), "ws://chat.invalid/ws", "1.2.3", str(package)],
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertFalse((temporary / "data" / "spacechat" / "current").exists())
 
 
 class ClientBuildScriptTests(unittest.TestCase):

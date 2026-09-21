@@ -730,13 +730,13 @@ git commit -m "feat:部署服务端客户端更新目录与版本策略"
 **Files:**
 - Create: `internal/update/integration_test.go`
 - Create: `docs/verification-client-online-update-2026-09-21.md`
-- Modify: tests only where a proven platform-specific gap is exposed.
+- Modify: updater, client launch, installers, deployment transaction, and regression tests where independent review exposed a concrete failure mode.
 
 **Interfaces:**
 - Consumes: all production interfaces from Tasks 1–9.
 - Produces: an automated end-to-end proof that an old managed client can optionally update, is forced when below minimum, preserves the old version on corruption, and remains blocked by the WebSocket server when incompatible.
 
-- [ ] **Step 1: Write the end-to-end update test**
+- [x] **Step 1: Write the end-to-end update test**
 
 Use a temporary installation root, ephemeral signing key, signed manifest, `httptest` server, fake executable self-check, and real filesystem operations. Exercise:
 
@@ -747,13 +747,13 @@ Use a temporary installation root, ephemeral signing key, signed manifest, `http
 0.3.1 -> WebSocket join with minimum 0.3.2 -> upgrade_required before history
 ```
 
-- [ ] **Step 2: Run the integration test and verify it exercises real boundaries**
+- [x] **Step 2: Run the integration test and verify it exercises real boundaries**
 
 Run: `go test ./internal/update -run TestManagedClientUpdateEndToEnd -count=1 -v`
 
 Expected: PASS only through the real manifest verifier, HTTP downloader, filesystem installer, self-check hook, atomic pointer, and server compatibility decision; no direct field mutation may replace those boundaries.
 
-- [ ] **Step 3: Run formatting and focused race verification**
+- [x] **Step 3: Run formatting and focused race verification**
 
 Run: `gofmt -w cmd internal`
 
@@ -761,7 +761,7 @@ Run: `go test -race ./internal/update ./internal/server ./internal/client ./inte
 
 Expected: PASS with no race reports.
 
-- [ ] **Step 4: Run the full Go verification**
+- [x] **Step 4: Run the full Go verification**
 
 Run: `go test ./... -count=1`
 
@@ -769,13 +769,13 @@ Run: `go vet ./...`
 
 Expected: both commands exit `0`.
 
-- [ ] **Step 5: Run deployment-script verification**
+- [x] **Step 5: Run deployment-script verification**
 
 Run: `python3 -m unittest discover -s deploy -p 'test_*.py'`
 
 Expected: all deployment tests pass.
 
-- [ ] **Step 6: Verify cross-compilation without publishing artifacts**
+- [x] **Step 6: Verify cross-compilation without publishing artifacts**
 
 Use a temporary directory outside the repository:
 
@@ -789,22 +789,22 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/spacechat-server-linux-am
 
 Expected: all five builds exit `0`; no `dist` or generated artifact is added to Git.
 
-- [ ] **Step 7: Record fresh verification evidence**
+- [x] **Step 7: Record fresh verification evidence**
 
 Create `docs/verification-client-online-update-2026-09-21.md` with the exact commands, timestamps, exit codes, test counts, supported platforms, and any intentionally unrun environment-dependent Windows pseudo-terminal checks. Do not claim an unrun check passed.
 
-- [ ] **Step 8: Check repository hygiene and commit**
+- [x] **Step 8: Check repository hygiene and commit**
 
 Run: `git diff --check && git status --short`
 
 Expected: only intended source, tests, scripts, README, plan, and verification document are changed; no private key, binary, database, build directory, or local IDE file is present.
 
 ```bash
-git add internal/update/integration_test.go docs/verification-client-online-update-2026-09-21.md
-git commit -m "style:补充客户端在线更新端到端验收"
+git add cmd/xchat internal/update deploy/client deploy/rooms deploy/test_client_install.py deploy/test_rooms_deploy.py internal/update/integration_test.go docs/verification-client-online-update-2026-09-21.md docs/superpowers/plans/2026-09-21-client-online-update.md
+git commit -m "fix:完善客户端在线更新失败恢复与验收"
 ```
 
-- [ ] **Step 9: Inspect every pending push commit without pushing**
+- [x] **Step 9: Inspect every pending push commit without pushing**
 
 Run: `git log --reverse --format='%h %s' origin/main..HEAD`
 

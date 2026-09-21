@@ -61,6 +61,11 @@ mkdir -p -m 0755 "$bin_dir"
 trap 'rm -rf "$staging"' EXIT HUP INT TERM
 mkdir -m 0700 "$staging"
 install -m 0755 "$client_source" "$staging/spacechat-client"
+embedded_version=$("$staging/spacechat-client" --version)
+if [ "$embedded_version" != "spacechat $version" ]; then
+    printf 'Package version mismatch: expected spacechat %s, got %s\n' "$version" "$embedded_version" >&2
+    exit 1
+fi
 "$staging/spacechat-client" --self-check
 mv "$staging" "$target"
 

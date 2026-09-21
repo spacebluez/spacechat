@@ -16,6 +16,11 @@ import (
 	"time"
 )
 
+const (
+	metadataRequestTimeout  = 10 * time.Second
+	artifactDownloadTimeout = 30 * time.Minute
+)
+
 type Remote struct {
 	Client    *http.Client
 	PublicKey ed25519.PublicKey
@@ -47,12 +52,12 @@ func UpdateURL(serverAddress, endpoint string) (*url.URL, error) {
 	return &url.URL{Scheme: scheme, Host: server.Host, Path: target.Path}, nil
 }
 
-func (remote Remote) httpClient() *http.Client {
-	client := http.Client{Timeout: 10 * time.Second}
+func (remote Remote) httpClient(defaultTimeout time.Duration) *http.Client {
+	client := http.Client{Timeout: defaultTimeout}
 	if remote.Client != nil {
 		client = *remote.Client
 		if client.Timeout == 0 {
-			client.Timeout = 10 * time.Second
+			client.Timeout = defaultTimeout
 		}
 	}
 	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
@@ -70,7 +75,7 @@ func (remote Remote) get(ctx context.Context, serverAddress, endpoint string, ma
 	if err != nil {
 		return nil, err
 	}
-	response, err := remote.httpClient().Do(request)
+	response, err := remote.httpClient(metadataRequestTimeout).Do(request)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +157,7 @@ func (remote Remote) Download(ctx context.Context, serverAddress string, artifac
 	if err != nil {
 		return err
 	}
-	response, err := remote.httpClient().Do(request)
+	response, err := remote.httpClient(artifactDownloadTimeout).Do(request)
 	if err != nil {
 		return err
 	}

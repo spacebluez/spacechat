@@ -90,7 +90,7 @@ func launchUpdated(path string, args []string, stdin io.Reader, stdout, stderr i
 	command.Stdin = stdin
 	command.Stdout = stdout
 	command.Stderr = stderr
-	return command.Start()
+	return command.Run()
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -154,10 +154,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			console.ShowError(fmt.Errorf("清理旧版本失败：%w", cleanupError))
 		}
 	}
+	knownIncompatible := false
 	for {
 		if managed {
 			outcome, updateError := runner.Run(context.Background(), update.Request{
-				Server: address, Current: current, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Args: args,
+				Server: address, Current: current, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Args: args, KnownIncompatible: knownIncompatible,
 			})
 			if updateError != nil {
 				fmt.Fprintln(stderr, "spacechat:", updateError)
@@ -182,6 +183,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "spacechat: 服务端要求升级，但当前客户端未配置在线更新")
 			return 1
 		}
+		knownIncompatible = true
 	}
 }
 

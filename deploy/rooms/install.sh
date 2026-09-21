@@ -36,48 +36,70 @@ if [ ! -e /etc/xchat-rooms/server.env ]; then
  chmod 0640 /etc/xchat-rooms/server.env
  chown root:xchat-rooms /etc/xchat-rooms/server.env
 fi
-for target in /opt/xchat-rooms/updates /opt/xchat-rooms/updates.new /etc/xchat-rooms/update-public.key /etc/xchat-rooms/update-public.key.new; do
+for source in "$release/xchat-rooms-server-linux-amd64" "$release/clear_history.py" "$release/update-public.key" "$release/xchat-rooms.service" "$release/xchat-rooms-cleanup.service" "$release/xchat-rooms-cleanup.timer"; do
+ if [ ! -f "$source" ] || [ -L "$source" ]; then printf 'Invalid release file: %s\n' "$source" >&2; exit 1; fi
+done
+for target in /opt/xchat-rooms/updates /opt/xchat-rooms/updates.new /etc/xchat-rooms/update-public.key /etc/xchat-rooms/update-public.key.new /opt/xchat-rooms/xchat-server.new /opt/xchat-rooms/clear_history.py.new /etc/systemd/system/xchat-rooms.service.new /etc/systemd/system/xchat-rooms-cleanup.service.new /etc/systemd/system/xchat-rooms-cleanup.timer.new; do
  if [ -L "$target" ]; then printf 'Refusing symlink: %s\n' "$target" >&2; exit 1; fi
 done
 if [ -e /opt/xchat-rooms/updates.new ]; then rm -rf /opt/xchat-rooms/updates.new; fi
+rm -f /etc/xchat-rooms/update-public.key.new /opt/xchat-rooms/xchat-server.new /opt/xchat-rooms/clear_history.py.new /etc/systemd/system/xchat-rooms.service.new /etc/systemd/system/xchat-rooms-cleanup.service.new /etc/systemd/system/xchat-rooms-cleanup.timer.new
 install -d -m 0755 /opt/xchat-rooms/updates.new
 cp -R "$release/updates/." /opt/xchat-rooms/updates.new/
 find /opt/xchat-rooms/updates.new -type d -exec chmod 0755 {} \;
 find /opt/xchat-rooms/updates.new -type f -exec chmod 0644 {} \;
 install -m 0644 "$release/update-public.key" /etc/xchat-rooms/update-public.key.new
 install -m 0755 "$release/xchat-rooms-server-linux-amd64" /opt/xchat-rooms/xchat-server.new
+install -m 0755 "$release/clear_history.py" /opt/xchat-rooms/clear_history.py.new
+install -m 0644 "$release/xchat-rooms.service" /etc/systemd/system/xchat-rooms.service.new
+install -m 0644 "$release/xchat-rooms-cleanup.service" /etc/systemd/system/xchat-rooms-cleanup.service.new
+install -m 0644 "$release/xchat-rooms-cleanup.timer" /etc/systemd/system/xchat-rooms-cleanup.timer.new
 /opt/xchat-rooms/xchat-server.new -validate-updates -update-dir /opt/xchat-rooms/updates.new -update-public-key-file /etc/xchat-rooms/update-public.key.new
 
 if [ -e /opt/xchat-rooms/updates.previous ]; then rm -rf /opt/xchat-rooms/updates.previous; fi
-if [ -e /etc/xchat-rooms/update-public.key.previous ]; then rm -f /etc/xchat-rooms/update-public.key.previous; fi
-if [ -e /opt/xchat-rooms/xchat-server.previous ]; then rm -f /opt/xchat-rooms/xchat-server.previous; fi
-if [ -e /etc/systemd/system/xchat-rooms.service.previous ]; then rm -f /etc/systemd/system/xchat-rooms.service.previous; fi
+rm -f /etc/xchat-rooms/update-public.key.previous /opt/xchat-rooms/xchat-server.previous /opt/xchat-rooms/clear_history.py.previous /etc/systemd/system/xchat-rooms.service.previous /etc/systemd/system/xchat-rooms-cleanup.service.previous /etc/systemd/system/xchat-rooms-cleanup.timer.previous
 
 swapping=1
+updates_swapped=0
+key_swapped=0
+server_swapped=0
+clear_swapped=0
+service_swapped=0
+cleanup_service_swapped=0
+cleanup_timer_swapped=0
 rollback() {
  status=$?
  trap - EXIT
  if [ "$swapping" -eq 1 ] && [ "$status" -ne 0 ]; then
-  if [ -e /opt/xchat-rooms/updates.previous ]; then rm -rf /opt/xchat-rooms/updates; mv /opt/xchat-rooms/updates.previous /opt/xchat-rooms/updates; fi
-  if [ -e /etc/xchat-rooms/update-public.key.previous ]; then rm -f /etc/xchat-rooms/update-public.key; mv /etc/xchat-rooms/update-public.key.previous /etc/xchat-rooms/update-public.key; fi
-  if [ -e /opt/xchat-rooms/xchat-server.previous ]; then rm -f /opt/xchat-rooms/xchat-server; mv /opt/xchat-rooms/xchat-server.previous /opt/xchat-rooms/xchat-server; fi
-  if [ -e /etc/systemd/system/xchat-rooms.service.previous ]; then rm -f /etc/systemd/system/xchat-rooms.service; mv /etc/systemd/system/xchat-rooms.service.previous /etc/systemd/system/xchat-rooms.service; fi
+  if [ "$updates_swapped" -eq 1 ]; then rm -rf /opt/xchat-rooms/updates; if [ -e /opt/xchat-rooms/updates.previous ]; then mv /opt/xchat-rooms/updates.previous /opt/xchat-rooms/updates; fi; fi
+  if [ "$key_swapped" -eq 1 ]; then rm -f /etc/xchat-rooms/update-public.key; if [ -e /etc/xchat-rooms/update-public.key.previous ]; then mv /etc/xchat-rooms/update-public.key.previous /etc/xchat-rooms/update-public.key; fi; fi
+  if [ "$server_swapped" -eq 1 ]; then rm -f /opt/xchat-rooms/xchat-server; if [ -e /opt/xchat-rooms/xchat-server.previous ]; then mv /opt/xchat-rooms/xchat-server.previous /opt/xchat-rooms/xchat-server; fi; fi
+  if [ "$clear_swapped" -eq 1 ]; then rm -f /opt/xchat-rooms/clear_history.py; if [ -e /opt/xchat-rooms/clear_history.py.previous ]; then mv /opt/xchat-rooms/clear_history.py.previous /opt/xchat-rooms/clear_history.py; fi; fi
+  if [ "$service_swapped" -eq 1 ]; then rm -f /etc/systemd/system/xchat-rooms.service; if [ -e /etc/systemd/system/xchat-rooms.service.previous ]; then mv /etc/systemd/system/xchat-rooms.service.previous /etc/systemd/system/xchat-rooms.service; fi; fi
+  if [ "$cleanup_service_swapped" -eq 1 ]; then rm -f /etc/systemd/system/xchat-rooms-cleanup.service; if [ -e /etc/systemd/system/xchat-rooms-cleanup.service.previous ]; then mv /etc/systemd/system/xchat-rooms-cleanup.service.previous /etc/systemd/system/xchat-rooms-cleanup.service; fi; fi
+  if [ "$cleanup_timer_swapped" -eq 1 ]; then rm -f /etc/systemd/system/xchat-rooms-cleanup.timer; if [ -e /etc/systemd/system/xchat-rooms-cleanup.timer.previous ]; then mv /etc/systemd/system/xchat-rooms-cleanup.timer.previous /etc/systemd/system/xchat-rooms-cleanup.timer; fi; fi
   systemctl daemon-reload || true
   systemctl restart xchat-rooms.service || true
+  systemctl restart xchat-rooms-cleanup.timer || true
  fi
  exit "$status"
 }
 trap rollback EXIT
 
-if [ -e /opt/xchat-rooms/updates ]; then mv /opt/xchat-rooms/updates /opt/xchat-rooms/updates.previous; fi
-if [ -e /etc/xchat-rooms/update-public.key ]; then mv /etc/xchat-rooms/update-public.key /etc/xchat-rooms/update-public.key.previous; fi
-if [ -e /opt/xchat-rooms/xchat-server ]; then mv /opt/xchat-rooms/xchat-server /opt/xchat-rooms/xchat-server.previous; fi
-if [ -e /etc/systemd/system/xchat-rooms.service ]; then mv /etc/systemd/system/xchat-rooms.service /etc/systemd/system/xchat-rooms.service.previous; fi
+if [ -e /opt/xchat-rooms/updates ]; then mv /opt/xchat-rooms/updates /opt/xchat-rooms/updates.previous; fi; updates_swapped=1
 mv /opt/xchat-rooms/updates.new /opt/xchat-rooms/updates
+if [ -e /etc/xchat-rooms/update-public.key ]; then mv /etc/xchat-rooms/update-public.key /etc/xchat-rooms/update-public.key.previous; fi; key_swapped=1
 mv /etc/xchat-rooms/update-public.key.new /etc/xchat-rooms/update-public.key
+if [ -e /opt/xchat-rooms/xchat-server ]; then mv /opt/xchat-rooms/xchat-server /opt/xchat-rooms/xchat-server.previous; fi; server_swapped=1
 mv /opt/xchat-rooms/xchat-server.new /opt/xchat-rooms/xchat-server
-install -m 0755 "$release/clear_history.py" /opt/xchat-rooms/clear_history.py
-for unit in xchat-rooms.service xchat-rooms-cleanup.service xchat-rooms-cleanup.timer; do install -m 0644 "$release/$unit" "/etc/systemd/system/$unit"; done
+if [ -e /opt/xchat-rooms/clear_history.py ]; then mv /opt/xchat-rooms/clear_history.py /opt/xchat-rooms/clear_history.py.previous; fi; clear_swapped=1
+mv /opt/xchat-rooms/clear_history.py.new /opt/xchat-rooms/clear_history.py
+if [ -e /etc/systemd/system/xchat-rooms.service ]; then mv /etc/systemd/system/xchat-rooms.service /etc/systemd/system/xchat-rooms.service.previous; fi; service_swapped=1
+mv /etc/systemd/system/xchat-rooms.service.new /etc/systemd/system/xchat-rooms.service
+if [ -e /etc/systemd/system/xchat-rooms-cleanup.service ]; then mv /etc/systemd/system/xchat-rooms-cleanup.service /etc/systemd/system/xchat-rooms-cleanup.service.previous; fi; cleanup_service_swapped=1
+mv /etc/systemd/system/xchat-rooms-cleanup.service.new /etc/systemd/system/xchat-rooms-cleanup.service
+if [ -e /etc/systemd/system/xchat-rooms-cleanup.timer ]; then mv /etc/systemd/system/xchat-rooms-cleanup.timer /etc/systemd/system/xchat-rooms-cleanup.timer.previous; fi; cleanup_timer_swapped=1
+mv /etc/systemd/system/xchat-rooms-cleanup.timer.new /etc/systemd/system/xchat-rooms-cleanup.timer
 systemctl daemon-reload
 systemctl enable xchat-rooms.service
 systemctl restart xchat-rooms.service
@@ -88,4 +110,4 @@ systemctl list-timers xchat-rooms-cleanup.timer --no-pager
 swapping=0
 trap - EXIT
 rm -rf /opt/xchat-rooms/updates.previous
-rm -f /etc/xchat-rooms/update-public.key.previous /opt/xchat-rooms/xchat-server.previous /etc/systemd/system/xchat-rooms.service.previous
+rm -f /etc/xchat-rooms/update-public.key.previous /opt/xchat-rooms/xchat-server.previous /opt/xchat-rooms/clear_history.py.previous /etc/systemd/system/xchat-rooms.service.previous /etc/systemd/system/xchat-rooms-cleanup.service.previous /etc/systemd/system/xchat-rooms-cleanup.timer.previous

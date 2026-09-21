@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestUpdateURLUsesSelectedServerOrigin(t *testing.T) {
@@ -34,6 +35,16 @@ func TestUpdateURLUsesSelectedServerOrigin(t *testing.T) {
 	}
 	if _, err := UpdateURL("ws://chat.example/ws", "https://evil.example/file"); err == nil {
 		t.Fatal("accepted absolute update endpoint")
+	}
+}
+
+func TestRemoteUsesSeparateMetadataAndArtifactTimeouts(t *testing.T) {
+	remote := Remote{}
+	if timeout := remote.httpClient(metadataRequestTimeout).Timeout; timeout != 10*time.Second {
+		t.Fatalf("metadata timeout = %v", timeout)
+	}
+	if timeout := remote.httpClient(artifactDownloadTimeout).Timeout; timeout < 10*time.Minute {
+		t.Fatalf("artifact timeout is too short for bounded streaming: %v", timeout)
 	}
 }
 
