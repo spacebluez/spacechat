@@ -169,3 +169,43 @@ func TestRunnerRollsBackWhenNewProcessCannotStart(t *testing.T) {
 		t.Fatalf("outcome=%v err=%v rollbacks=%d errors=%v", outcome, err, installer.rollbacks, ui.errors)
 	}
 }
+
+func TestRunnerDoesNotRollbackAnotherUpdaterOnLaunchFailure(t *testing.T) {
+	request := runnerRequest()
+	check := checkForDecision(DecisionOptional)
+	installer := &fakeInstalling{results: []InstallResult{{Path: "/managed/client", Previous: request.Current, Target: check.Latest, Shared: true}}}
+	ui := &fakeUI{actions: []Action{ActionUpdate}}
+	outcome, err := (Runner{
+		Checker: &fakeChecker{check: check}, Installer: installer, UI: ui,
+		Launch: func(string, []string) error { return errors.New("start failed") },
+	}).Run(context.Background(), request)
+	if err != nil || outcome != Continue || installer.rollbacks != 0 {
+		t.Fatalf("outcome=%v err=%v rollbacks=%d", outcome, err, installer.rollbacks)
+	}
+}
+
+func TestRunnerKnownIncompatibleCheckFailureRequiresRetryOrExit(t *testing.T) {
+	request := runnerRequest()
+	request.KnownIncompatible = true
+	checker := &sequenceChecker{
+		errors: []error{errors.New("update endpoint unavailable"), nil},
+		checks: []Check{{}, checkForDecision(DecisionRequired)},
+	}
+	ui := &fakeUI{actions: []Action{ActionRetry, ActionExit}}
+	outcome, err := (Runner{Checker: checker, Installer: new(fakeInstalling), UI: ui}).Run(context.Background(), request)
+	if err != nil || outcome != Exit || checker.calls != 2 || len(ui.prompts) != 2 || !ui.prompts[0].Retry {
+		t.Fatalf("outcome=%v err=%v calls=%d prompts=%+v", outcome, err, checker.calls, ui.prompts)
+	}
+}
+
+type sequenceChecker struct {
+	checks []Check
+	errors []error
+	calls  int
+}
+
+func (checker *sequenceChecker) Check(context.Context, string, Version, string, string) (Check, error) {
+	index := checker.calls
+	checker.calls++
+	return checker.checks[index], checker.errors[index]
+}

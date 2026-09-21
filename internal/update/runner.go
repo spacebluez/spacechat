@@ -47,10 +47,11 @@ const (
 )
 
 type Request struct {
-	Server       string
-	Current      Version
-	GOOS, GOARCH string
-	Args         []string
+	Server            string
+	Current           Version
+	GOOS, GOARCH      string
+	Args              []string
+	KnownIncompatible bool
 }
 
 type Runner struct {
@@ -64,10 +65,31 @@ func (runner Runner) Run(ctx context.Context, request Request) (Outcome, error) 
 	if runner.Checker == nil || runner.UI == nil {
 		return Exit, errors.New("update runner is not configured")
 	}
-	check, err := runner.Checker.Check(ctx, request.Server, request.Current, request.GOOS, request.GOARCH)
-	if err != nil {
-		runner.UI.ShowError(fmt.Errorf("检查更新失败：%w", err))
-		return Continue, nil
+	var check Check
+	for {
+		var err error
+		check, err = runner.Checker.Check(ctx, request.Server, request.Current, request.GOOS, request.GOARCH)
+		if err == nil && !(request.KnownIncompatible && (check.Decision == DecisionCurrent || check.Decision == DecisionAhead)) {
+			break
+		}
+		if err != nil {
+			runner.UI.ShowError(fmt.Errorf("检查更新失败：%w", err))
+		} else {
+			runner.UI.ShowError(errors.New("服务端要求升级，但更新清单尚未提供兼容版本"))
+		}
+		if !request.KnownIncompatible {
+			return Continue, nil
+		}
+		action := runner.UI.Choose(Prompt{Current: request.Current, Latest: check.Latest, Decision: DecisionRequired, Retry: true})
+		if action == ActionExit {
+			return Exit, nil
+		}
+		if action != ActionRetry {
+			return Exit, errors.New("invalid required-update check action")
+		}
+	}
+	if request.KnownIncompatible && check.Decision == DecisionOptional {
+		check.Decision = DecisionRequired
 	}
 	if check.Decision == DecisionCurrent || check.Decision == DecisionAhead {
 		return Continue, nil
@@ -96,8 +118,10 @@ func (runner Runner) Run(ctx context.Context, request Request) (Outcome, error) 
 			if installError == nil {
 				return Relaunched, nil
 			}
-			if rollbackError := runner.Installer.Rollback(result); rollbackError != nil {
-				return Exit, fmt.Errorf("start updated client: %v; rollback: %w", installError, rollbackError)
+			if !result.Shared {
+				if rollbackError := runner.Installer.Rollback(result); rollbackError != nil {
+					return Exit, fmt.Errorf("start updated client: %v; rollback: %w", installError, rollbackError)
+				}
 			}
 		}
 		runner.UI.ShowError(installError)

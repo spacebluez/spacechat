@@ -58,6 +58,10 @@ try {
     New-Item -ItemType Directory -Path $staging | Out-Null
     $stagedClient = Join-Path $staging "spacechat-client.exe"
     Copy-Item -LiteralPath $clientSource -Destination $stagedClient
+    $embeddedVersion = ((& $stagedClient --version) | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $embeddedVersion -ne "spacechat $Version") {
+        throw "Package version mismatch: expected spacechat $Version, got $embeddedVersion"
+    }
     & $stagedClient --self-check
     if ($LASTEXITCODE -ne 0) { throw "Client self-check failed" }
     Move-Item -LiteralPath $staging -Destination $targetDirectory

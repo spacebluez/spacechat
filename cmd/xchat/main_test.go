@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -101,5 +102,19 @@ func TestRunHelpHidesInternalSelfCheckFlag(t *testing.T) {
 	}
 	if strings.Contains(stderr.String(), "self-check") {
 		t.Fatalf("internal flag is public: %q", stderr.String())
+	}
+}
+
+func TestLaunchUpdatedWaitsForImmediateChildFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+	path := filepath.Join(t.TempDir(), "failing-client")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 7\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	err := launchUpdated(path, nil, strings.NewReader(""), new(bytes.Buffer), new(bytes.Buffer))
+	if err == nil {
+		t.Fatal("immediately failing updated client was treated as a successful relaunch")
 	}
 }
