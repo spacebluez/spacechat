@@ -396,17 +396,17 @@ git commit -m "feat:新增跨平台spacechat稳定启动入口"
 - Produces: `Installer.Install(ctx, Check) (InstallResult, error)` and `Installer.Rollback(InstallResult) error`.
 - Produces: `Acquire(layout Layout, now time.Time) (*Lock, error)` and `Cleanup(layout Layout, current Version) error`.
 
-- [ ] **Step 1: Write failing URL and signed-check tests**
+- [x] **Step 1: Write failing URL and signed-check tests**
 
 Assert `ws://host:18081/ws` maps to `http://host:18081/updates/v1/manifest`, `wss` maps to `https`, credentials/fragments/non-WebSocket schemes are rejected, redirects are rejected, and a signed test server returns the correct optional/required decision and platform artifact.
 
-- [ ] **Step 2: Run remote check tests and verify RED**
+- [x] **Step 2: Run remote check tests and verify RED**
 
 Run: `go test ./internal/update -run 'TestUpdateURL|TestRemoteCheck' -count=1`
 
 Expected: FAIL because remote operations do not exist.
 
-- [ ] **Step 3: Implement bounded same-origin fetches**
+- [x] **Step 3: Implement bounded same-origin fetches**
 
 ```go
 type Remote struct {
@@ -423,17 +423,17 @@ type Check struct {
 
 Use request contexts, a client with `CheckRedirect` returning `http.ErrUseLastResponse`, exact `200` status, a 1 MiB manifest limit, exact 64-byte signature, and artifact URLs constructed only from the selected server origin plus the validated filename.
 
-- [ ] **Step 4: Write failing download/install/lock tests**
+- [x] **Step 4: Write failing download/install/lock tests**
 
 Test exact size and digest, short and oversized bodies, interrupted downloads, progress callbacks, destination cleanup, executable mode on Linux, self-check failure, atomic current switch, a second concurrent lock, stale lock recovery after ten minutes, and cleanup retaining current plus one prior version.
 
-- [ ] **Step 5: Run installer tests and verify RED**
+- [x] **Step 5: Run installer tests and verify RED**
 
 Run: `go test ./internal/update -run 'TestDownload|TestInstall|TestLock|TestCleanup' -count=1`
 
 Expected: FAIL because installer and lock operations do not exist.
 
-- [ ] **Step 6: Implement transactional installation**
+- [x] **Step 6: Implement transactional installation**
 
 ```go
 type Installer struct {
@@ -453,7 +453,7 @@ Create a unique file under `tmp`, stream through `sha256.New()` and `io.MultiWri
 
 Implement the update lock as an `O_CREATE|O_EXCL` metadata file containing PID and RFC3339 timestamp. A lock older than ten minutes may be removed once and reacquired; live fresh locks are never removed.
 
-- [ ] **Step 7: Run update package tests and commit**
+- [x] **Step 7: Run update package tests and commit**
 
 Run: `go test ./internal/update -count=1`
 
