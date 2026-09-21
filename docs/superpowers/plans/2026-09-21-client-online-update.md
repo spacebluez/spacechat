@@ -627,31 +627,31 @@ git commit -m "feat:客户端启动时检查更新并上报版本"
 - Produces: `spacechat-release manifest -version <x.y.z> -minimum <x.y.z> -private-key <file> -windows <file> -linux <file> -out <dir>`.
 - Produces: user-level installers accepting the server WebSocket URL and initial version directory.
 
-- [ ] **Step 1: Write failing release-tool tests**
+- [x] **Step 1: Write failing release-tool tests**
 
 Use an ephemeral Ed25519 private key. Assert `public-key` prints the matching base64 public key; `manifest` copies both artifacts, writes exact size/digests, creates a raw 64-byte signature, and its output passes `update.VerifyManifest`. Assert malformed keys and invalid version relationships fail without a partial output directory.
 
-- [ ] **Step 2: Run release-tool tests and verify RED**
+- [x] **Step 2: Run release-tool tests and verify RED**
 
 Run: `go test ./cmd/spacechat-release -count=1`
 
 Expected: FAIL because the command does not exist.
 
-- [ ] **Step 3: Implement deterministic release metadata**
+- [x] **Step 3: Implement deterministic release metadata**
 
 Split CLI parsing from `run(args, stdout, stderr) int`. Marshal the manifest with `json.MarshalIndent` plus one trailing newline, sign those exact bytes, write artifacts first, and atomically rename the completed output directory. Read a base64 32-byte seed or 64-byte Ed25519 private key from a regular permission-restricted file; never print it.
 
-- [ ] **Step 4: Write failing installer-script assertions**
+- [x] **Step 4: Write failing installer-script assertions**
 
 In `deploy/test_client_install.py`, assert Windows installs under `%LOCALAPPDATA%\SpaceChat`, Linux under XDG/user directories, both write strict `config.json` and `current`, the Windows installer updates user PATH rather than machine PATH, and neither installer embeds a production server address.
 
-- [ ] **Step 5: Run deployment script tests and verify RED**
+- [x] **Step 5: Run deployment script tests and verify RED**
 
 Run: `python3 -m unittest deploy.test_client_install -v`
 
 Expected: FAIL because installers do not exist.
 
-- [ ] **Step 6: Implement build and installation scripts**
+- [x] **Step 6: Implement build and installation scripts**
 
 Change release version default to `0.4.0`; add mandatory `-SigningKey` and optional `-MinimumVersion` defaulting to `0.0.0`. Derive the public key before compiling clients and inject it with:
 
@@ -661,7 +661,7 @@ $clientFlags = "-s -w -X main.defaultServer=$Server -X main.version=$Version -X 
 
 Build stable launcher and versioned client for Windows amd64 and Linux amd64, then build the Linux server. Run `spacechat-release manifest` and package the signed update directory with the server. Installers validate the server URL, copy launcher/client, write the pointer/config atomically, and add only the user-level executable directory to PATH.
 
-- [ ] **Step 7: Run tool and script tests and commit**
+- [x] **Step 7: Run tool and script tests and commit**
 
 Run: `go test ./cmd/spacechat-release -count=1 && python3 -m unittest deploy.test_client_install -v`
 
