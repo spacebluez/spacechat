@@ -5,9 +5,13 @@ import (
 	"xchat/internal/securestore"
 )
 
-func NewRooms(repository *securestore.Store) *Server {
+func NewRooms(repository *securestore.Store, options ...RoomsOption) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Server{rooms: repository, sessions: make(map[string]*session), ctx: ctx, cancel: cancel}
+	service := &Server{rooms: repository, sessions: make(map[string]*session), ctx: ctx, cancel: cancel}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 func (client *session) sessionKey() string {
