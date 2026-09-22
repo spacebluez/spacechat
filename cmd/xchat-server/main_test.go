@@ -52,6 +52,24 @@ func TestParseConfigRequiresPairedUpdateFlags(t *testing.T) {
 	}
 }
 
+func TestParseConfigPublicURLUsesEnvironmentUnlessFlagOverridesIt(t *testing.T) {
+	t.Setenv("SPACECHAT_PUBLIC_URL", "wss://environment.example/ws")
+	config, err := parseConfig([]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.publicURL != "wss://environment.example/ws" {
+		t.Fatalf("environment public URL = %q", config.publicURL)
+	}
+	config, err = parseConfig([]string{"-public-url", "ws://flag.example/ws"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.publicURL != "ws://flag.example/ws" {
+		t.Fatalf("flag public URL = %q", config.publicURL)
+	}
+}
+
 func makeInstallerFixture(t *testing.T) (string, string) {
 	t.Helper()
 	directory := t.TempDir()
@@ -98,6 +116,21 @@ func TestLoadInstallerOptionsWiresBootstrapRoutes(t *testing.T) {
 	service.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://chat.invalid/install/linux", nil))
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "spacechat-linux-amd64-0.4.0.zip") {
 		t.Fatalf("bootstrap response = %d %q", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestLoadInstallerOptionsRejectsInvalidPublicURL(t *testing.T) {
+	directory, keyPath := makeInstallerFixture(t)
+	t.Setenv("SPACECHAT_PUBLIC_URL", "https://chat.example/ws")
+	config, err := parseConfig([]string{
+		"-update-dir", "/updates", "-update-public-key-file", keyPath, "-installer-dir", directory,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = loadInstallerOptions(config)
+	if err == nil || !strings.Contains(err.Error(), "installer public URL") {
+		t.Fatalf("invalid public URL error = %v", err)
 	}
 }
 

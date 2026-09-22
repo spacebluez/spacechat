@@ -45,10 +45,10 @@ type installerCatalogFixture struct {
 }
 
 func makeInstallerCatalogFixture(t *testing.T) installerCatalogFixture {
-	return makeInstallerCatalogFixtureForServer(t, "ws://192.168.33.216:18081/ws")
+	return makeInstallerCatalogFixtureForServer(t, 1, "ws://192.168.33.216:18081/ws")
 }
 
-func makeInstallerCatalogFixtureForServer(t *testing.T, server string) installerCatalogFixture {
+func makeInstallerCatalogFixtureForServer(t *testing.T, schema int, server string) installerCatalogFixture {
 	t.Helper()
 	directory := t.TempDir()
 	files := map[string][]byte{
@@ -60,11 +60,15 @@ func makeInstallerCatalogFixtureForServer(t *testing.T, server string) installer
 		return hex.EncodeToString(hash[:])
 	}
 	manifest := update.InstallerManifest{
-		Schema: 1, Version: "0.4.0", Server: server,
+		Schema: schema, Version: "0.4.0", Server: server,
 		Packages: map[string]update.Artifact{
 			"windows-amd64": {File: "spacechat-windows-amd64-0.4.0.zip", Size: int64(len(files["spacechat-windows-amd64-0.4.0.zip"])), SHA256: digest(files["spacechat-windows-amd64-0.4.0.zip"])},
 			"linux-amd64":   {File: "spacechat-linux-amd64-0.4.0.zip", Size: int64(len(files["spacechat-linux-amd64-0.4.0.zip"])), SHA256: digest(files["spacechat-linux-amd64-0.4.0.zip"])},
 		},
+	}
+	if schema == 2 {
+		manifest.Server = ""
+		manifest.ServerMode = update.InstallerServerModeRequest
 	}
 	raw, err := json.Marshal(manifest)
 	if err != nil {
@@ -89,6 +93,16 @@ func makeInstallerCatalogFixtureForServer(t *testing.T, server string) installer
 	return installerCatalogFixture{directory: directory, publicKey: publicKey, raw: raw, signature: signature, files: files}
 }
 
+func loadDynamicFixture(t *testing.T) *InstallerCatalog {
+	t.Helper()
+	fixture := makeInstallerCatalogFixtureForServer(t, 2, "")
+	catalog, err := LoadInstallerCatalog(fixture.directory, fixture.publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return catalog
+}
+
 func TestLinuxBootstrapDownloadsVerifiesAndRunsInstaller(t *testing.T) {
 	var packageData []byte
 	packageHost := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -100,7 +114,7 @@ func TestLinuxBootstrapDownloadsVerifiesAndRunsInstaller(t *testing.T) {
 	}))
 	defer packageHost.Close()
 	server := "ws" + strings.TrimPrefix(packageHost.URL, "http") + "/ws"
-	fixture := makeInstallerCatalogFixtureForServer(t, server)
+	fixture := makeInstallerCatalogFixtureForServer(t, 1, server)
 	packageData = fixture.files["spacechat-linux-amd64-0.4.0.zip"]
 	catalog, err := LoadInstallerCatalog(fixture.directory, fixture.publicKey)
 	if err != nil {
@@ -126,6 +140,81 @@ func TestLinuxBootstrapDownloadsVerifiesAndRunsInstaller(t *testing.T) {
 	}
 	if string(result) != server+"\n0.4.0\n" {
 		t.Fatalf("installer invocation = %q", result)
+	}
+}
+
+func TestDynamicInstallerAddressesUseRequestOrExplicitURL(t *testing.T) {
+	tests := []struct {
+		name, requestURL, publicURL, expectedOrigin, expectedServer string
+	}{
+		{"http request", "http://10.0.0.8:18081/install/linux", "", "http://10.0.0.8:18081", "ws://10.0.0.8:18081/ws"},
+		{"https request", "https://chat.example/install/linux", "", "https://chat.example", "wss://chat.example/ws"},
+		{"proxy override", "http://server:18081/install/linux", "wss://chat.example/ws", "https://chat.example", "wss://chat.example/ws"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			catalog := loadDynamicFixture(t)
+			if err := catalog.SetPublicURL(test.publicURL); err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodGet, test.requestURL, nil)
+			request.Header.Set("X-Forwarded-Proto", "https")
+			recorder := httptest.NewRecorder()
+			NewRooms(nil, WithInstallerCatalog(catalog)).Handler().ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), test.expectedOrigin) || !strings.Contains(recorder.Body.String(), test.expectedServer) {
+				t.Fatalf("status=%d body=%q", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestDynamicInstallerAddressesRejectMaliciousRequestHost(t *testing.T) {
+	for _, host := range []string{"user@host", "chat.example bad", "chat.example/install", `chat.example\install`} {
+		t.Run(host, func(t *testing.T) {
+			catalog := loadDynamicFixture(t)
+			request := httptest.NewRequest(http.MethodGet, "http://chat.example/install/linux", nil)
+			request.Host = host
+			recorder := httptest.NewRecorder()
+			NewRooms(nil, WithInstallerCatalog(catalog)).Handler().ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("host %q status=%d body=%q", host, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestFixedInstallerAddressesIgnoreRequestHost(t *testing.T) {
+	fixture := makeInstallerCatalogFixture(t)
+	catalog, err := LoadInstallerCatalog(fixture.directory, fixture.publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = catalog.SetPublicURL("wss://override.example/ws"); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://chat.example/install/linux", nil)
+	request.Host = "user@host"
+	recorder := httptest.NewRecorder()
+	NewRooms(nil, WithInstallerCatalog(catalog)).Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "http://192.168.33.216:18081") || !strings.Contains(recorder.Body.String(), "ws://192.168.33.216:18081/ws") {
+		t.Fatalf("status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestSetPublicURLRejectsInvalidURL(t *testing.T) {
+	for _, raw := range []string{
+		"http://chat.example/ws",
+		"wss://user@chat.example/ws",
+		"wss://chat.example/ws#fragment",
+		"wss:///ws",
+		"wss://chat.example/not-ws",
+		"wss://chat.example/ws?query",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			if err := loadDynamicFixture(t).SetPublicURL(raw); err == nil {
+				t.Fatalf("invalid public URL accepted: %q", raw)
+			}
+		})
 	}
 }
 

@@ -35,6 +35,7 @@ type serverConfig struct {
 	installerDirectory  string
 	updatePublicKeyFile string
 	validateUpdates     bool
+	publicURL           string
 }
 
 func parseConfig(args []string) (serverConfig, error) {
@@ -54,6 +55,7 @@ func parseConfig(args []string) (serverConfig, error) {
 	set.StringVar(&config.installerDirectory, "installer-dir", "", "Verified initial installer directory")
 	set.StringVar(&config.updatePublicKeyFile, "update-public-key-file", "", "Base64 Ed25519 update public key file")
 	set.BoolVar(&config.validateUpdates, "validate-updates", false, "Validate update catalog and exit")
+	set.StringVar(&config.publicURL, "public-url", os.Getenv("SPACECHAT_PUBLIC_URL"), "Public ws[s] URL used by dynamic installer scripts")
 	if err := set.Parse(args); err != nil {
 		return serverConfig{}, err
 	}
@@ -86,6 +88,9 @@ func loadInstallerOptions(config serverConfig) ([]server.RoomsOption, *server.In
 	catalog, err := server.LoadInstallerCatalog(config.installerDirectory, publicKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("installer catalog: %w", err)
+	}
+	if err = catalog.SetPublicURL(config.publicURL); err != nil {
+		return nil, nil, fmt.Errorf("installer public URL: %w", err)
 	}
 	return []server.RoomsOption{server.WithInstallerCatalog(catalog)}, catalog, nil
 }

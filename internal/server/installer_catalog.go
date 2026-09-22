@@ -26,6 +26,7 @@ type InstallerCatalog struct {
 	signature   []byte
 	manifest    update.InstallerManifest
 	origin      string
+	publicURL   *url.URL
 	files       map[string]installerPackage
 }
 
@@ -58,9 +59,12 @@ func LoadInstallerCatalog(directory string, publicKey ed25519.PublicKey) (*Insta
 	if err != nil {
 		return nil, err
 	}
-	origin, err := installerOrigin(manifest.Server)
-	if err != nil {
-		return nil, err
+	origin := ""
+	if manifest.ServerMode != update.InstallerServerModeRequest {
+		origin, err = installerOrigin(manifest.Server)
+		if err != nil {
+			return nil, err
+		}
 	}
 	files := make(map[string]installerPackage, len(manifest.Packages))
 	for _, item := range manifest.Packages {
@@ -84,6 +88,22 @@ func LoadInstallerCatalog(directory string, publicKey ed25519.PublicKey) (*Insta
 	}, nil
 }
 
+func (catalog *InstallerCatalog) SetPublicURL(raw string) error {
+	if raw == "" {
+		catalog.publicURL = nil
+		return nil
+	}
+	override, err := url.Parse(raw)
+	if err != nil || override.Scheme != "ws" && override.Scheme != "wss" || override.User != nil || override.Fragment != "" || override.Host == "" || override.Path != "/ws" || override.RawQuery != "" || override.ForceQuery {
+		return errors.New("invalid installer public URL")
+	}
+	if err := validateInstallerHost(override.Host); err != nil {
+		return errors.New("invalid installer public URL")
+	}
+	catalog.publicURL = override
+	return nil
+}
+
 func (catalog *InstallerCatalog) Manifest() update.InstallerManifest {
 	copyOf := catalog.manifest
 	copyOf.Packages = make(map[string]update.Artifact, len(catalog.manifest.Packages))
@@ -105,12 +125,63 @@ func (catalog *InstallerCatalog) register(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /install/linux", func(writer http.ResponseWriter, request *http.Request) {
 		item, _ := catalog.manifest.Package("linux", "amd64")
-		serveInstallerScript(writer, "text/x-shellscript; charset=utf-8", linuxBootstrap(catalog.origin, catalog.manifest, item))
+		origin, manifest, err := catalog.installerAddresses(request)
+		if err != nil {
+			http.Error(writer, "invalid installer request host", http.StatusBadRequest)
+			return
+		}
+		serveInstallerScript(writer, "text/x-shellscript; charset=utf-8", linuxBootstrap(origin, manifest, item))
 	})
 	mux.HandleFunc("GET /install/windows", func(writer http.ResponseWriter, request *http.Request) {
 		item, _ := catalog.manifest.Package("windows", "amd64")
-		serveInstallerScript(writer, "text/plain; charset=utf-8", windowsBootstrap(catalog.origin, catalog.manifest, item))
+		origin, manifest, err := catalog.installerAddresses(request)
+		if err != nil {
+			http.Error(writer, "invalid installer request host", http.StatusBadRequest)
+			return
+		}
+		serveInstallerScript(writer, "text/plain; charset=utf-8", windowsBootstrap(origin, manifest, item))
 	})
+}
+
+func (catalog *InstallerCatalog) installerAddresses(request *http.Request) (string, update.InstallerManifest, error) {
+	manifest := catalog.manifest
+	if manifest.ServerMode != update.InstallerServerModeRequest {
+		return catalog.origin, manifest, nil
+	}
+	origin, server, err := installerRequestAddresses(request, catalog.publicURL)
+	if err != nil {
+		return "", update.InstallerManifest{}, err
+	}
+	manifest.Server = server
+	return origin, manifest, nil
+}
+
+func installerRequestAddresses(request *http.Request, override *url.URL) (origin, server string, err error) {
+	websocketScheme, httpScheme, host := "ws", "http", request.Host
+	if override != nil {
+		websocketScheme, host = override.Scheme, override.Host
+		if websocketScheme == "wss" {
+			httpScheme = "https"
+		}
+	} else if request.TLS != nil {
+		websocketScheme, httpScheme = "wss", "https"
+	}
+	if err := validateInstallerHost(host); err != nil {
+		return "", "", err
+	}
+	return (&url.URL{Scheme: httpScheme, Host: host}).String(),
+		(&url.URL{Scheme: websocketScheme, Host: host, Path: "/ws"}).String(), nil
+}
+
+func validateInstallerHost(host string) error {
+	if host == "" || strings.ContainsAny(host, " \t\r\n/\\?#@") {
+		return errors.New("invalid installer host")
+	}
+	parsed, err := url.Parse("http://" + host)
+	if err != nil || parsed.Host != host || parsed.User != nil || parsed.Hostname() == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("invalid installer host")
+	}
+	return nil
 }
 
 func (catalog *InstallerCatalog) servePackage(writer http.ResponseWriter, request *http.Request) {
