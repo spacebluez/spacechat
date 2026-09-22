@@ -95,7 +95,7 @@ func TestVerifyInstallerManifestRejectsMixedAddressModes(t *testing.T) {
 
 func TestVerifyInstallerManifestRejectsUnsafeCatalogs(t *testing.T) {
 	tests := map[string]func(*InstallerManifest){
-		"unknown schema":       func(manifest *InstallerManifest) { manifest.Schema = 2 },
+		"unknown schema":       func(manifest *InstallerManifest) { manifest.Schema = 3 },
 		"invalid version":      func(manifest *InstallerManifest) { manifest.Version = "latest" },
 		"unsafe server scheme": func(manifest *InstallerManifest) { manifest.Server = "https://chat.invalid/ws" },
 		"server credentials":   func(manifest *InstallerManifest) { manifest.Server = "ws://user@chat.invalid/ws" },
