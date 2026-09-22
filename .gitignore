@@ -3,6 +3,7 @@
 *.db-shm
 *.db-wal
 /.cache/
+/.worktrees/
 *.key
 
 __pycache__/
