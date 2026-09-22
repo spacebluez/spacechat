@@ -17,21 +17,32 @@ func TestLoadUsesFallbackWhenConfigIsMissing(t *testing.T) {
 	}
 }
 
-func TestLoadAcceptsOnlyOneValidServerField(t *testing.T) {
+func TestLoadAcceptsAllowInsecureWithStrictJSONDecoding(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "config.json")
-	if err := os.WriteFile(path, []byte("{\"server\":\"wss://chat.example/ws\"}\n"), 0600); err != nil {
-		t.Fatal(err)
+	valid := []struct {
+		raw  string
+		want bool
+	}{
+		{`{"server":"wss://chat.example/ws"}`, false},
+		{`{"server":"ws://chat.example/ws","allow_insecure":true}`, true},
 	}
-	config, err := Load(path, "ws://fallback/ws")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config.Server != "wss://chat.example/ws" {
-		t.Fatalf("Server = %q", config.Server)
+	for _, test := range valid {
+		if err := os.WriteFile(path, []byte(test.raw), 0600); err != nil {
+			t.Fatal(err)
+		}
+		config, err := Load(path, "ws://fallback/ws")
+		if err != nil {
+			t.Fatalf("Load(%s): %v", test.raw, err)
+		}
+		if config.AllowInsecure != test.want {
+			t.Fatalf("Load(%s).AllowInsecure = %t, want %t", test.raw, config.AllowInsecure, test.want)
+		}
 	}
 
 	invalid := []string{
+		`{"server":"ws://chat/ws","allow_insecure":"yes"}`,
+		`{"server":"ws://chat/ws","allow_insecure":true,"allow_insecure":false}`,
 		`{"server":"ws://chat/ws","extra":true}`,
 		`{"server":"http://chat/ws"}`,
 		`{"server":"ws://chat/ws"} {}`,

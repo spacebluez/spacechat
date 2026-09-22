@@ -60,6 +60,52 @@ class ClientInstallerTests(unittest.TestCase):
             self.assertNotIn("localhost", source)
             self.assertNotIn("example.com", source)
 
+    def test_linux_installer_records_transport_authorization(self):
+        for server, expected_config in (
+            ("ws://chat.invalid/ws", {"server": "ws://chat.invalid/ws", "allow_insecure": True}),
+            ("wss://chat.invalid/ws", {"server": "wss://chat.invalid/ws", "allow_insecure": False}),
+        ):
+            with self.subTest(server=server), tempfile.TemporaryDirectory() as temporary:
+                temporary = pathlib.Path(temporary)
+                package = temporary / "package"
+                home = temporary / "home"
+                package.mkdir()
+                home.mkdir()
+                launcher = package / "spacechat"
+                client = package / "spacechat-client"
+                launcher.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                client.write_text(
+                    '#!/bin/sh\ncase "$1" in --version) echo "spacechat 1.2.3" ;; --self-check) exit 0 ;; *) exit 1 ;; esac\n',
+                    encoding="utf-8",
+                )
+                launcher.chmod(0o755)
+                client.chmod(0o755)
+                environment = os.environ.copy()
+                environment.update(
+                    {
+                        "HOME": str(home),
+                        "XDG_CONFIG_HOME": str(temporary / "config"),
+                        "XDG_DATA_HOME": str(temporary / "data"),
+                    }
+                )
+                result = subprocess.run(
+                    [
+                        "sh",
+                        str(ROOT / "deploy" / "client" / "install.sh"),
+                        server,
+                        "1.2.3",
+                        str(package),
+                    ],
+                    env=environment,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                config = temporary / "config" / "spacechat" / "config.json"
+                self.assertEqual(expected_config, json.loads(config.read_text(encoding="utf-8")))
+
     def test_linux_installer_creates_a_runnable_managed_layout(self):
         with tempfile.TemporaryDirectory() as temporary:
             temporary = pathlib.Path(temporary)
@@ -102,7 +148,7 @@ class ClientInstallerTests(unittest.TestCase):
             config = temporary / "config" / "spacechat" / "config.json"
             current = temporary / "data" / "spacechat" / "current"
             installed_client = temporary / "data" / "spacechat" / "versions" / "1.2.3" / "spacechat-client"
-            self.assertEqual({"server": "wss://chat.invalid/ws"}, json.loads(config.read_text(encoding="utf-8")))
+            self.assertEqual({"server": "wss://chat.invalid/ws", "allow_insecure": False}, json.loads(config.read_text(encoding="utf-8")))
             self.assertEqual("1.2.3\n", current.read_text(encoding="ascii"))
             self.assertTrue(os.access(installed_client, os.X_OK))
             self.assertTrue(os.access(home / ".local" / "bin" / "spacechat", os.X_OK))

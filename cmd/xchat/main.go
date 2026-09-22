@@ -155,6 +155,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	address := parsedOptions.server
+	allowInsecure := parsedOptions.allowInsecure
 	if !parsedOptions.serverSet {
 		config, loadError := clientconfig.Load(layout.Config, defaultServer)
 		if loadError != nil {
@@ -162,12 +163,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 		address = config.Server
+		allowInsecure = config.AllowInsecure || parsedOptions.allowInsecure
 	}
-	if err = client.ValidateTransport(address, parsedOptions.allowInsecure); err != nil {
+	if err = client.ValidateTransport(address, allowInsecure); err != nil {
 		fmt.Fprintln(stderr, "spacechat:", err)
 		return 2
 	}
-	networkOptions := client.Options{AllowInsecure: parsedOptions.allowInsecure}
+	networkOptions := client.Options{AllowInsecure: allowInsecure}
 	networkOptions.RootCAs, err = trustedRoots(parsedOptions.tlsCAPath, defaultTLSCA)
 	if err != nil {
 		fmt.Fprintln(stderr, "spacechat:", err)

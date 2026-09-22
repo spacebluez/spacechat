@@ -168,6 +168,49 @@ func TestRunCommandLineServerOverridesManagedConfig(t *testing.T) {
 	}
 }
 
+func TestRunUsesInstallationAuthorizationOnlyForConfiguredServer(t *testing.T) {
+	configuration := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configuration)
+	path := filepath.Join(configuration, "spacechat", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"server":"ws://configured.example/ws","allow_insecure":true}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	originalVersion := version
+	originalNewModel, originalTerminal := newModel, runTerminal
+	t.Cleanup(func() {
+		version = originalVersion
+		newModel = originalNewModel
+		runTerminal = originalTerminal
+	})
+	version = "dev"
+	var receivedAddress string
+	var receivedOptions client.Options
+	newModel = func(address string, info client.Info, configuration ...client.Options) *tui.Model {
+		receivedAddress = address
+		if len(configuration) > 0 {
+			receivedOptions = configuration[0]
+		}
+		return tui.NewWithClientInfo(address, info, configuration...)
+	}
+	runTerminal = func(tea.Model) error { return nil }
+
+	if code := run(nil, strings.NewReader(""), new(bytes.Buffer), new(bytes.Buffer)); code != 0 {
+		t.Fatalf("configured server exit = %d", code)
+	}
+	if receivedAddress != "ws://configured.example/ws" || !receivedOptions.AllowInsecure {
+		t.Fatalf("configured transport = %q, %+v", receivedAddress, receivedOptions)
+	}
+
+	stderr := new(bytes.Buffer)
+	if code := run([]string{"--server", "ws://other.example/ws"}, strings.NewReader(""), new(bytes.Buffer), stderr); code != 2 {
+		t.Fatalf("explicit insecure server exit = %d, stderr=%q", code, stderr.String())
+	}
+}
+
 func TestRunHelpHidesInternalSelfCheckFlag(t *testing.T) {
 	stdout := new(bytes.Buffer)
 	stderr := new(bytes.Buffer)

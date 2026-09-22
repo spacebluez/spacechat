@@ -80,7 +80,11 @@ install -m 0755 "$launcher_source" "$launcher_temporary"
 mv -f "$launcher_temporary" "$bin_dir/spacechat"
 
 config_temporary=$config_dir/.config.json.new.$$
-printf '{"server":"%s"}\n' "$server" > "$config_temporary"
+allow_insecure=false
+case "$server" in
+    ws://*) allow_insecure=true ;;
+esac
+printf '{"server":"%s","allow_insecure":%s}\n' "$server" "$allow_insecure" > "$config_temporary"
 chmod 0600 "$config_temporary"
 mv -f "$config_temporary" "$config_dir/config.json"
 

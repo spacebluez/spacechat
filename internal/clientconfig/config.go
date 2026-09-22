@@ -14,7 +14,8 @@ import (
 const maximumConfigSize = 64 << 10
 
 type Config struct {
-	Server string `json:"server"`
+	Server        string `json:"server"`
+	AllowInsecure bool   `json:"allow_insecure"`
 }
 
 func Load(path, fallback string) (Config, error) {
@@ -53,21 +54,35 @@ func decode(raw []byte) (Config, error) {
 	}
 	config := Config{}
 	seenServer := false
+	seenAllowInsecure := false
 	for decoder.More() {
 		token, err := decoder.Token()
 		if err != nil {
 			return Config{}, fmt.Errorf("decode client config: %w", err)
 		}
 		name, ok := token.(string)
-		if !ok || name != "server" {
-			return Config{}, errors.New("client config may contain only the server field")
+		if !ok {
+			return Config{}, errors.New("client config contains an unsupported field")
 		}
-		if seenServer {
-			return Config{}, errors.New("client config contains duplicate server fields")
-		}
-		seenServer = true
-		if err = decoder.Decode(&config.Server); err != nil {
-			return Config{}, fmt.Errorf("decode configured server: %w", err)
+		switch name {
+		case "server":
+			if seenServer {
+				return Config{}, errors.New("client config contains duplicate server fields")
+			}
+			seenServer = true
+			if err = decoder.Decode(&config.Server); err != nil {
+				return Config{}, fmt.Errorf("decode configured server: %w", err)
+			}
+		case "allow_insecure":
+			if seenAllowInsecure {
+				return Config{}, errors.New("client config contains duplicate allow_insecure fields")
+			}
+			seenAllowInsecure = true
+			if err = decoder.Decode(&config.AllowInsecure); err != nil {
+				return Config{}, fmt.Errorf("decode configured allow_insecure: %w", err)
+			}
+		default:
+			return Config{}, errors.New("client config contains an unsupported field")
 		}
 	}
 	closing, err := decoder.Token()

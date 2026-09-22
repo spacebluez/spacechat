@@ -87,7 +87,10 @@ try {
     Move-Item -LiteralPath $launcherTemporary -Destination (Join-Path $bin "spacechat.exe") -Force
 
     $configTemporary = Join-Path $root ("config.json.new-" + [Guid]::NewGuid().ToString("N"))
-    $configJson = @{ server = $Server } | ConvertTo-Json -Compress
+    $configJson = @{
+        server = $Server
+        allow_insecure = ($serverUri.Scheme -eq "ws")
+    } | ConvertTo-Json -Compress
     [IO.File]::WriteAllText($configTemporary, $configJson + "`n", (New-Object Text.UTF8Encoding($false)))
     Move-Item -LiteralPath $configTemporary -Destination $configPath -Force
 
