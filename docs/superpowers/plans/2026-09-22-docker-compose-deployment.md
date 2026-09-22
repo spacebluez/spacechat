@@ -328,7 +328,7 @@ invalid := []string{
 {"server": "wss://chat.invalid/ws", "allow_insecure": False}
 ```
 
-并对 PowerShell 源码断言包含 `allow_insecure` 与 `Scheme -eq "ws"`。
+Windows PowerShell 安装器不在 Linux 测试中做源码字符串断言；它的配置结果由 Windows 人工安装验收覆盖，Go 配置解析和 Linux 安装器测试负责自动化验证同一 JSON 契约。
 
 - [ ] **Step 2: 运行测试并确认失败**
 
@@ -681,36 +681,75 @@ git commit -m "feat:增加容器每日历史清理调度"
 
 **Interfaces:**
 - Consumes: `/run/secrets/update-signing.key`、`/run/config/client-ca.pem`、`/opt/windows-terminal`、仓库源码与 `spacechat-release`。
-- Consumes env: `SPACECHAT_VERSION`、`SPACECHAT_MINIMUM_VERSION`、`SPACECHAT_OUTPUT_DIR`。
+- Consumes env: `SPACECHAT_VERSION`、`SPACECHAT_MINIMUM_VERSION`、`SPACECHAT_OUTPUT_DIR`；测试可通过 `SPACECHAT_SIGNING_KEY_PATH`、`SPACECHAT_CLIENT_CA_PATH`、`SPACECHAT_TERMINAL_DIR`、`SPACECHAT_RELEASE_BIN`、`SPACECHAT_SERVER_BIN` 覆盖外部输入路径。
 - Produces: `${SPACECHAT_OUTPUT_DIR}/release/{updates,installers,update-public.key}`，只有完整验证后才替换。
 - Produces: Windows/Linux amd64 稳定启动器、版本化客户端与首装 ZIP。
 
-- [ ] **Step 1: 编写构建器契约测试**
+- [ ] **Step 1: 编写真实执行的构建器测试**
 
 新建 `deploy/test_docker_artifacts.py`：
 
 ```python
 import base64
+import json
+import os
 import pathlib
+import subprocess
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 class DockerArtifactBuilderTests(unittest.TestCase):
-    def test_default_seed_is_an_explicit_public_ed25519_seed(self):
-        path = ROOT / "deploy/docker/default-update-signing.seed"
-        self.assertEqual(32, len(base64.b64decode(path.read_text().strip(), validate=True)))
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.temporary.name)
+        self.release_tool = self.root / "spacechat-release"
+        self.server = self.root / "xchat-server"
+        subprocess.run(["go", "build", "-o", self.release_tool, "./cmd/spacechat-release"], cwd=ROOT, check=True)
+        subprocess.run(["go", "build", "-o", self.server, "./cmd/xchat-server"], cwd=ROOT, check=True)
+        self.terminal = self.root / "terminal"
+        (self.terminal / "settings").mkdir(parents=True)
+        (self.terminal / "WindowsTerminal.exe").write_bytes(b"terminal")
+        (self.terminal / ".portable").write_text("", encoding="utf-8")
+        (self.terminal / "settings/settings.json").write_text("{}\n", encoding="utf-8")
 
-    def test_builder_copies_private_key_and_publishes_one_release_directory(self):
-        source = (ROOT / "deploy/docker/build-artifacts.sh").read_text(encoding="utf-8")
-        for expected in (
-            "umask 077", "install -m 0600", "main.updatePublicKey",
-            "main.defaultServer", "main.defaultTLSCA", "-server-mode", "request",
-            "spacechat-release manifest", "spacechat-release installers",
-            "/opt/windows-terminal", "release.previous", "update-public.key",
-        ):
-            self.assertIn(expected, source)
-        self.assertNotIn("cat \"$signing_key\"", source)
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def environment(self):
+        environment = os.environ.copy()
+        environment.update({
+            "SPACECHAT_OUTPUT_DIR": str(self.root / "artifacts"),
+            "SPACECHAT_SIGNING_KEY_PATH": str(ROOT / "deploy/docker/default-update-signing.seed"),
+            "SPACECHAT_CLIENT_CA_PATH": str(ROOT / "deploy/docker/empty-client-ca.pem"),
+            "SPACECHAT_TERMINAL_DIR": str(self.terminal),
+            "SPACECHAT_RELEASE_BIN": str(self.release_tool),
+            "SPACECHAT_SERVER_BIN": str(self.server),
+            "GOCACHE": "/tmp/spacechat-go-build-cache",
+        })
+        return environment
+
+    def test_default_seed_is_accepted_by_the_real_release_tool(self):
+        result = subprocess.run(
+            [self.release_tool, "public-key", "-private-key", ROOT / "deploy/docker/default-update-signing.seed"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True,
+        )
+        self.assertEqual(32, len(base64.b64decode(result.stdout.strip(), validate=True)))
+
+    def test_builder_generates_and_atomically_replaces_a_verified_release(self):
+        command = ["sh", str(ROOT / "deploy/docker/build-artifacts.sh")]
+        first = subprocess.run(command, cwd=ROOT, env=self.environment(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        release = self.root / "artifacts/release"
+        self.assertEqual(2, json.loads((release / "installers/installers.json").read_text())["schema"])
+        self.assertTrue((release / "updates/manifest.sig").is_file())
+        self.assertEqual(32, len(base64.b64decode((release / "update-public.key").read_text().strip(), validate=True)))
+        marker = release / "obsolete"
+        marker.write_text("old", encoding="utf-8")
+        second = subprocess.run(command, cwd=ROOT, env=self.environment(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        self.assertFalse(marker.exists())
+        seed = (ROOT / "deploy/docker/default-update-signing.seed").read_text().strip()
+        self.assertNotIn(seed, first.stdout + first.stderr + second.stdout + second.stderr)
 
 if __name__ == "__main__":
     unittest.main()
@@ -756,13 +795,16 @@ umask 077
 version=${SPACECHAT_VERSION:-0.4.0}
 minimum=${SPACECHAT_MINIMUM_VERSION:-0.0.0}
 output=${SPACECHAT_OUTPUT_DIR:-/artifacts}
-signing_key=/run/secrets/update-signing.key
-client_ca=/run/config/client-ca.pem
+signing_key=${SPACECHAT_SIGNING_KEY_PATH:-/run/secrets/update-signing.key}
+client_ca=${SPACECHAT_CLIENT_CA_PATH:-/run/config/client-ca.pem}
+terminal_dir=${SPACECHAT_TERMINAL_DIR:-/opt/windows-terminal}
+release_bin=${SPACECHAT_RELEASE_BIN:-/usr/local/bin/spacechat-release}
+server_bin=${SPACECHAT_SERVER_BIN:-/usr/local/bin/xchat-server}
 private_key=$(mktemp)
 staging=$(mktemp -d "$output/.release.XXXXXX")
 trap 'rm -f "$private_key"; rm -rf "$staging"' EXIT HUP INT TERM
 install -m 0600 "$signing_key" "$private_key"
-public_key=$(/usr/local/bin/spacechat-release public-key -private-key "$private_key")
+public_key=$($release_bin public-key -private-key "$private_key")
 ```
 
 校验 `version`/`minimum` 使用与发布工具相同的三段式格式；`client-ca.pem` 非空时必须包含证书且不得包含私钥，然后用 `base64 | tr -d '\n'` 生成链接值。
@@ -784,15 +826,15 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags '-s -w' -o "$s
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$client_ldflags" -o "$staging/spacechat-client" ./cmd/xchat
 ```
 
-创建 Windows/Linux 包目录，复制两个安装脚本和 README；Windows 包复制 `/opt/windows-terminal`，再复制 `scripts/windows-terminal/.portable` 和 `settings.json` 到与现有 PowerShell 发布包相同的位置。用 `zip -qr` 生成两个 ZIP，然后执行：
+创建 Windows/Linux 包目录，复制两个安装脚本和 README；Windows 包复制 `$terminal_dir`，再复制 `scripts/windows-terminal/.portable` 和 `settings.json` 到与现有 PowerShell 发布包相同的位置。用 `zip -qr` 生成两个 ZIP，然后执行：
 
 ```sh
 install -d -m 0700 "$staging/release"
-/usr/local/bin/spacechat-release manifest \
+$release_bin manifest \
   -version "$version" -minimum "$minimum" -private-key "$private_key" \
   -windows "$staging/spacechat-client.exe" -linux "$staging/spacechat-client" \
   -out "$staging/release/updates"
-/usr/local/bin/spacechat-release installers \
+$release_bin installers \
   -version "$version" -server-mode request -private-key "$private_key" \
   -windows-package "$staging/spacechat-windows-amd64-$version.zip" \
   -linux-package "$staging/spacechat-linux-amd64-$version.zip" \
@@ -800,7 +842,7 @@ install -d -m 0700 "$staging/release"
 printf '%s\n' "$public_key" > "$staging/release/update-public.key"
 ```
 
-使用 `xchat-server -validate-updates` 对 staging 中 updates/installers/key 做最终验证。
+使用 `$server_bin -validate-updates` 对 staging 中 updates/installers/key 做最终验证。
 
 验证后把发布目录设为只读服务可读取、不可写的权限；私钥不在该目录中：
 
@@ -855,7 +897,7 @@ git commit -m "feat:增加容器客户端签名制品构建器"
 - Create: `deploy/docker/server-entrypoint.sh`
 - Create: `deploy/docker/healthcheck.sh`
 - Create: `deploy/docker/tls/README.md`
-- Create: `deploy/test_docker_images.py`
+- Create: `deploy/docker/test-images.sh`
 
 **Interfaces:**
 - Produces Docker targets: `artifacts`、`server`、`cleanup`。
@@ -863,38 +905,23 @@ git commit -m "feat:增加容器客户端签名制品构建器"
 - `server` expects: `/artifacts/release` read-only、`/data` writable、`/run/spacechat` writable。
 - `cleanup` entrypoint: `python3 /app/clear_history.py`。
 
-- [ ] **Step 1: 编写镜像与入口契约测试**
+- [ ] **Step 1: 编写真实镜像行为测试**
 
-新建 `deploy/test_docker_images.py`，断言：
+新建可执行的 `deploy/docker/test-images.sh`。脚本构建 `server`、`cleanup`、`artifacts` 三个 target，然后通过实际容器行为验证：
 
-```python
-class DockerImageDefinitionTests(unittest.TestCase):
-    def test_dockerfile_has_isolated_targets_and_non_root_runtime(self):
-        source = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-        for expected in (
-            "AS artifacts", "AS server", "AS cleanup",
-            "su-exec", "USER spacechat", "build-artifacts.sh", "server-entrypoint.sh",
-            "clear_history.py", "Microsoft.WindowsTerminal_1.24.11911.0_x64.zip",
-            "7691efeb71c8dd0b95536c84e366fa4cf809a42c534912f9cefa1056534383bd",
-        ):
-            self.assertIn(expected, source)
+- server 镜像不含 Go 工具链和签名私钥，且 `su-exec spacechat id -u` 输出 `10001`；
+- 只挂载 `tls.crt` 时，真实 server entrypoint 非零退出，标准错误包含 `TLS certificate and private key must be mounted together`；
+- `docker run --rm spacechat-cleanup:test --help` 展示 `--schedule-daily`；
+- 在仓库根目录临时创建 `.docker-secret.key` 后重新构建 artifacts target，并覆盖 entrypoint 检查镜像 `/src` 中不存在该文件，以实际 build context 行为验证 `.dockerignore`；脚本用 trap 无条件删除临时文件和目录。
 
-    def test_server_entrypoint_fails_on_partial_tls(self):
-        source = (ROOT / "deploy/docker/server-entrypoint.sh").read_text(encoding="utf-8")
-        self.assertIn("TLS certificate and private key must be mounted together", source)
-        self.assertIn("-allow-insecure", source)
-        self.assertIn("-init-encryption-key", source)
-        self.assertIn("-public-url", source)
-```
-
-再断言 `.dockerignore` 排除 `.git`、`.worktrees`、`dist`、数据库、`.env`、用户私钥，但没有排除 `default-update-signing.seed`。
+脚本允许通过 `SPACECHAT_SERVER_IMAGE`、`SPACECHAT_CLEANUP_IMAGE`、`SPACECHAT_ARTIFACTS_IMAGE` 覆盖测试镜像名，默认分别使用 `spacechat-server:test`、`spacechat-cleanup:test`、`spacechat-artifacts:test`。
 
 - [ ] **Step 2: 运行测试并确认失败**
 
 Run:
 
 ```sh
-python3 -m unittest deploy/test_docker_images.py
+sh deploy/docker/test-images.sh
 ```
 
 Expected: FAIL，Dockerfile 与入口文件不存在。
@@ -991,19 +1018,17 @@ deploy/docker/tls/tls.crt
 deploy/docker/tls/tls.key
 ```
 
-- [ ] **Step 6: 运行静态测试和镜像构建**
+- [ ] **Step 6: 运行脚本检查和真实镜像测试**
 
 Run:
 
 ```sh
-python3 -m unittest deploy/test_docker_images.py
 sh -n deploy/docker/server-entrypoint.sh deploy/docker/healthcheck.sh
-docker build --target server -t spacechat-server:test .
-docker build --target cleanup -t spacechat-cleanup:test .
-docker build --target artifacts -t spacechat-artifacts:test .
+sh -n deploy/docker/test-images.sh
+sh deploy/docker/test-images.sh
 ```
 
-Expected: 全部 PASS，三个 target 构建成功。
+Expected: 全部 PASS，三个 target 构建成功且运行行为符合约束。
 
 - [ ] **Step 7: 验证运行镜像隔离**
 
@@ -1018,7 +1043,7 @@ Expected: exit 0，输出 `10001`。Task 8 的运行中验收还必须通过 `do
 - [ ] **Step 8: 提交**
 
 ```sh
-git add Dockerfile .dockerignore deploy/docker/server-entrypoint.sh deploy/docker/healthcheck.sh deploy/docker/tls/README.md deploy/test_docker_images.py
+git add Dockerfile .dockerignore deploy/docker/server-entrypoint.sh deploy/docker/healthcheck.sh deploy/docker/tls/README.md deploy/docker/test-images.sh
 git commit -m "feat:增加SpaceChat容器运行镜像"
 ```
 
@@ -1192,48 +1217,12 @@ git commit -m "feat:增加Docker Compose一键部署编排"
 **Files:**
 - Create: `.env.example`
 - Modify: `README.md`
-- Modify: `deploy/test_docker_artifacts.py`
-- Modify: `deploy/test_docker_compose.py`
 
 **Interfaces:**
 - Documents all Compose variables and operational commands without requiring source knowledge。
 - Does not add runtime behavior beyond Tasks 1–8。
 
-- [ ] **Step 1: 先写文档验收断言**
-
-在 Compose 文档测试中读取 README，断言包含以下精确主题或命令：
-
-```python
-for expected in (
-    "docker compose up -d --build",
-    "http://chat.example.invalid:18081/install/linux",
-    "http://chat.example.invalid:18081/install/windows",
-    "默认更新签名密钥是公开的",
-    "不代表发布者身份认证",
-    "SPACECHAT_SIGNING_KEY_FILE",
-    "SPACECHAT_PUBLIC_URL",
-    "SPACECHAT_CLIENT_CA_FILE",
-    "SPACECHAT_TLS_DIR",
-    "docker compose down",
-    "docker compose down -v",
-    "Asia/Shanghai",
-):
-    self.assertIn(expected, readme)
-```
-
-另断言 `.env.example` 包含全部配置变量，但没有真实私钥正文。
-
-- [ ] **Step 2: 运行文档测试并确认失败**
-
-Run:
-
-```sh
-python3 -m unittest deploy/test_docker_artifacts.py deploy/test_docker_compose.py
-```
-
-Expected: FAIL，README 和 `.env.example` 尚未覆盖全部运维约束。
-
-- [ ] **Step 3: 写一键部署与客户端安装说明**
+- [ ] **Step 1: 写一键部署与客户端安装说明**
 
 在 README 的“服务端部署”前新增 Docker Compose 首选路径：
 
@@ -1247,7 +1236,7 @@ docker compose logs -f server
 
 明确默认服务为可信内网 WS，并给出 Linux/Windows 首装 URL。说明访问首装 URL 的 Host 会成为客户端连接地址；反向代理必须配置 `SPACECHAT_PUBLIC_URL`。
 
-- [ ] **Step 4: 写密钥、TLS、升级、备份与清理说明**
+- [ ] **Step 2: 写密钥、TLS、升级、备份与清理说明**
 
 文档必须明确：
 
@@ -1272,7 +1261,11 @@ SPACECHAT_CLIENT_CA_FILE=./deploy/docker/empty-client-ca.pem
 SPACECHAT_TLS_DIR=./deploy/docker/tls
 ```
 
-- [ ] **Step 5: 运行格式化与完整语言测试**
+- [ ] **Step 3: 人工核对运维文档契约**
+
+逐项核对 README 和 `.env.example` 是否覆盖：一键启动、Linux/Windows 安装 URL、默认签名密钥信任边界、自有密钥轮换、数据库密钥与备份、WS/WSS 切换、公网部署要求、清理时区与命令、保留卷和永久删卷的区别。自然语言文案不使用源码字符串断言；运行行为由 Tasks 1–8 的测试覆盖。
+
+- [ ] **Step 4: 运行格式化与完整语言测试**
 
 Run:
 
@@ -1285,7 +1278,7 @@ git diff --check
 
 Expected: 所有 Go/Python 测试 PASS，`git diff --check` 无输出。若沙箱禁止测试 socket，使用同一命令在允许本地 TCP/Unix socket 的环境重跑，不得把权限失败当作产品回归。
 
-- [ ] **Step 6: 运行完整 Docker 验收**
+- [ ] **Step 5: 运行完整 Docker 验收**
 
 Run:
 
@@ -1294,13 +1287,14 @@ docker compose config --quiet
 docker build --target artifacts -t spacechat-artifacts:test .
 docker build --target server -t spacechat-server:test .
 docker build --target cleanup -t spacechat-cleanup:test .
+sh deploy/docker/test-images.sh
 sh deploy/docker/smoke-test.sh
 sh deploy/docker/smoke-test.sh --tls
 ```
 
 Expected: 镜像构建和 WS/WSS 冒烟测试全部 PASS；测试项目被清理，开发用命名卷和现有部署卷未被触碰。
 
-- [ ] **Step 7: 检查密钥泄漏与提交范围**
+- [ ] **Step 6: 检查密钥泄漏与提交范围**
 
 Run:
 
@@ -1313,14 +1307,14 @@ git grep -n 'default-update-signing.seed'
 
 Expected: 只有计划内文件；没有 TLS 私钥或用户自有签名私钥；默认公开 seed 只出现在明确的构建与文档路径。
 
-- [ ] **Step 8: 提交文档**
+- [ ] **Step 7: 提交文档**
 
 ```sh
-git add README.md .env.example deploy/test_docker_artifacts.py deploy/test_docker_compose.py
+git add README.md .env.example
 git commit -m "docs:补充Docker Compose部署与安全说明"
 ```
 
-- [ ] **Step 9: 最终分支验证**
+- [ ] **Step 8: 最终分支验证**
 
 Run:
 
