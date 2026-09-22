@@ -1,4 +1,5 @@
 import contextlib
+import datetime
 import http.server
 import io
 import json
@@ -40,6 +41,38 @@ def fake_admin(status=200, deleted=3):
 
 
 class ClearHistoryTests(unittest.TestCase):
+    def test_next_midnight_uses_fixed_shanghai_time(self):
+        now = datetime.datetime(2026, 9, 22, 15, 30, tzinfo=datetime.timezone.utc)
+        self.assertEqual(1800, clear_history.seconds_until_next_midnight(now))
+        midnight = datetime.datetime(2026, 9, 22, 16, 0, tzinfo=datetime.timezone.utc)
+        self.assertEqual(24 * 60 * 60, clear_history.seconds_until_next_midnight(midnight))
+
+    def test_schedule_failure_waits_for_the_next_midnight(self):
+        sleeps = []
+
+        def stop_after_second_sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 2:
+                raise StopIteration
+
+        clear = mock.Mock(side_effect=OSError("offline"))
+        with self.assertRaises(StopIteration):
+            clear_history.run_daily(
+                "/run/admin.sock",
+                now=lambda zone: datetime.datetime(2026, 9, 22, 15, 30, tzinfo=zone),
+                sleep=stop_after_second_sleep,
+                clear=clear,
+                stderr=io.StringIO(),
+            )
+        self.assertEqual([1800, 1800], sleeps)
+        self.assertEqual(1, clear.call_count)
+
+    def test_schedule_and_yes_modes_are_mutually_exclusive(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                clear_history.main(["--schedule-daily", "--yes"])
+        self.assertEqual(2, error.exception.code)
+
     def test_clear_uses_private_post_endpoint(self):
         with fake_admin() as (path, server):
             self.assertEqual(clear_history.clear_history(path), 3)

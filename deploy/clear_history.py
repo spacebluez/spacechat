@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 
 import argparse
+import datetime
 import http.client
 import json
 import os
 import socket
 import sys
+import time
+
+
+SHANGHAI = datetime.timezone(datetime.timedelta(hours=8), name="Asia/Shanghai")
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
@@ -36,6 +41,26 @@ def clear_history(socket_path):
         connection.close()
 
 
+def seconds_until_next_midnight(now):
+    local = now.astimezone(SHANGHAI)
+    next_date = local.date() + datetime.timedelta(days=1)
+    target = datetime.datetime.combine(next_date, datetime.time.min, SHANGHAI)
+    return max(1, int((target - local).total_seconds()))
+
+
+def run_daily(socket_path, now=datetime.datetime.now, sleep=time.sleep,
+              clear=clear_history, stderr=None):
+    if stderr is None:
+        stderr = sys.stderr
+    while True:
+        sleep(seconds_until_next_midnight(now(datetime.timezone.utc)))
+        try:
+            deleted = clear(socket_path)
+            print("清理成功，已删除 {} 条聊天记录。".format(deleted))
+        except (OSError, http.client.HTTPException, ValueError, RuntimeError) as error:
+            print("定时清理失败：{}；将在下一个北京时间午夜重试。".format(error), file=stderr)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="清空 XChat 全部房间及聊天记录，并同步刷新在线客户端。请以 root 或 xchat-rooms 用户运行。"
@@ -45,8 +70,13 @@ def main(argv=None):
         default=os.environ.get("XCHAT_ROOMS_ADMIN_SOCKET", "/run/xchat-rooms/admin.sock"),
         help="管理 Unix socket 路径（默认 /run/xchat-rooms/admin.sock）",
     )
-    parser.add_argument("--yes", action="store_true", help="跳过交互确认，立即执行清空")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--yes", action="store_true", help="跳过交互确认，立即执行清空")
+    mode.add_argument("--schedule-daily", action="store_true", help="每天北京时间 00:00 执行清空")
     arguments = parser.parse_args(argv)
+    if arguments.schedule_daily:
+        run_daily(arguments.socket)
+        return 0
     if not arguments.yes:
         try:
             confirmation = input("将清空全部房间及聊天记录且不可撤销。输入 CLEAR 确认：")
