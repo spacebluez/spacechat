@@ -38,14 +38,33 @@ if [ -e "$output" ] && [ ! -d "$output" ]; then
 fi
 install -d -m 0755 "$output"
 output=$(CDPATH= cd -- "$output" && pwd)
+current=$output/release
+previous=$output/release.previous
+
+if [ ! -e "$current" ] && [ -d "$previous" ]; then
+    mv "$previous" "$current"
+elif [ -d "$current" ] && [ -e "$previous" ]; then
+    rm -rf "$previous"
+fi
 
 private_key=$(mktemp)
 staging=
+backup_active=0
 cleanup() {
-    rm -f "$private_key"
-    if [ -n "$staging" ]; then
-        rm -rf "$staging"
+    cleanup_status=$?
+    trap - EXIT HUP INT TERM
+    if [ "$backup_active" -eq 1 ]; then
+        if [ ! -e "$current" ] && [ -d "$previous" ]; then
+            mv "$previous" "$current" || cleanup_status=1
+        elif [ -d "$current" ] && [ -e "$previous" ]; then
+            rm -rf "$previous" || cleanup_status=1
+        fi
     fi
+    rm -f "$private_key" || cleanup_status=1
+    if [ -n "$staging" ]; then
+        rm -rf "$staging" || cleanup_status=1
+    fi
+    exit "$cleanup_status"
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
@@ -117,21 +136,24 @@ printf '%s\n' "$public_key" > "$staging/release/update-public.key"
     -installer-dir "$staging/release/installers" \
     -update-public-key-file "$staging/release/update-public.key"
 
-find "$staging/release" -type d -exec chmod 0755 {} \;
-find "$staging/release" -type f -exec chmod 0644 {} \;
+find "$staging/release" -type d -exec chmod 0755 {} +
+find "$staging/release" -type f -exec chmod 0644 {} +
 
-current=$output/release
-previous=$output/release.previous
-rm -rf "$previous"
-had_current=0
 if [ -d "$current" ]; then
     mv "$current" "$previous"
-    had_current=1
+    backup_active=1
 fi
-if ! mv "$staging/release" "$current"; then
-    if [ "$had_current" -eq 1 ]; then
-        mv "$previous" "$current"
-    fi
+if [ "${SPACECHAT_TEST_FAIL_AFTER_BACKUP:-}" = TERM ]; then
+    kill -TERM "$$"
+fi
+publish_failed=0
+if [ "${SPACECHAT_TEST_FAIL_PUBLISH_RENAME:-}" = 1 ]; then
+    publish_failed=1
+elif ! mv "$staging/release" "$current"; then
+    publish_failed=1
+fi
+if [ "$publish_failed" -eq 1 ]; then
     exit 1
 fi
 rm -rf "$previous"
+backup_active=0
