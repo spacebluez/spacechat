@@ -195,7 +195,7 @@ func createManifest(versionText, minimumText, keyPath, windowsPath, linuxPath, o
 	return nil
 }
 
-func createInstallerCatalog(versionText, server, keyPath, windowsPath, linuxPath, outputPath string) (resultError error) {
+func createInstallerCatalog(versionText, server, serverMode, keyPath, windowsPath, linuxPath, outputPath string) (resultError error) {
 	version, err := update.ParseVersion(versionText)
 	if err != nil {
 		return fmt.Errorf("invalid installer version: %w", err)
@@ -238,13 +238,17 @@ func createInstallerCatalog(versionText, server, keyPath, windowsPath, linuxPath
 		return fmt.Errorf("copy Linux installer package: %w", err)
 	}
 	manifest := update.InstallerManifest{
-		Schema:  1,
-		Version: version.String(),
-		Server:  server,
+		Schema:     1,
+		Version:    version.String(),
+		Server:     server,
+		ServerMode: serverMode,
 		Packages: map[string]update.Artifact{
 			"windows-amd64": windowsPackage,
 			"linux-amd64":   linuxPackage,
 		},
+	}
+	if serverMode != "" {
+		manifest.Schema = 2
 	}
 	raw, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -316,7 +320,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		set := flag.NewFlagSet("installers", flag.ContinueOnError)
 		set.SetOutput(stderr)
 		version := set.String("version", "", "release version")
-		server := set.String("server", "", "WebSocket server address")
+		server := set.String("server", "", "fixed WebSocket server address")
+		serverMode := set.String("server-mode", "", "installer server mode; request derives it from the download request")
 		keyPath := set.String("private-key", "", "base64 private key file")
 		windowsPath := set.String("windows-package", "", "Windows amd64 installer package")
 		linuxPath := set.String("linux-package", "", "Linux amd64 installer package")
@@ -324,11 +329,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if err := set.Parse(args[1:]); err != nil {
 			return 2
 		}
-		if set.NArg() != 0 || *version == "" || *server == "" || *keyPath == "" || *windowsPath == "" || *linuxPath == "" || *outputPath == "" {
-			fmt.Fprintln(stderr, "spacechat-release: installers requires -version, -server, -private-key, -windows-package, -linux-package, and -out")
+		if (*server == "") == (*serverMode == "") {
+			fmt.Fprintln(stderr, "spacechat-release: installers requires exactly one of -server or -server-mode")
 			return 2
 		}
-		if err := createInstallerCatalog(*version, *server, *keyPath, *windowsPath, *linuxPath, *outputPath); err != nil {
+		if *serverMode != "" && *serverMode != update.InstallerServerModeRequest {
+			fmt.Fprintln(stderr, "spacechat-release: unsupported installer server mode")
+			return 2
+		}
+		if set.NArg() != 0 || *version == "" || *keyPath == "" || *windowsPath == "" || *linuxPath == "" || *outputPath == "" {
+			fmt.Fprintln(stderr, "spacechat-release: installers requires -version, -private-key, -windows-package, -linux-package, and -out")
+			return 2
+		}
+		if err := createInstallerCatalog(*version, *server, *serverMode, *keyPath, *windowsPath, *linuxPath, *outputPath); err != nil {
 			fmt.Fprintln(stderr, "spacechat-release:", err)
 			return 1
 		}

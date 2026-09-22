@@ -191,3 +191,61 @@ func TestInstallerCatalogProducesSignedExactPackages(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallerCatalogProducesSignedRequestModePackages(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	windowsPath := filepath.Join(directory, "windows.zip")
+	linuxPath := filepath.Join(directory, "linux.zip")
+	if err = os.WriteFile(windowsPath, []byte("windows installer package"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(linuxPath, []byte("linux installer package"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(directory, "installers-0.4.0")
+	stderr := new(bytes.Buffer)
+	code := run([]string{
+		"installers", "-version", "0.4.0", "-server-mode", update.InstallerServerModeRequest,
+		"-private-key", writePrivateKey(t, privateKey),
+		"-windows-package", windowsPath, "-linux-package", linuxPath, "-out", out,
+	}, new(bytes.Buffer), stderr)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "installers.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature, err := os.ReadFile(filepath.Join(out, "installers.sig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := update.VerifyInstallerManifest(raw, signature, publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Schema != 2 || manifest.Server != "" || manifest.ServerMode != update.InstallerServerModeRequest {
+		t.Fatalf("installer manifest = %+v", manifest)
+	}
+}
+
+func TestInstallersRequiresExactlyOneAddressMode(t *testing.T) {
+	for name, args := range map[string][]string{
+		"neither": {"installers"},
+		"both":    {"installers", "-server", "ws://chat.invalid/ws", "-server-mode", update.InstallerServerModeRequest},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stderr := new(bytes.Buffer)
+			if code := run(args, new(bytes.Buffer), stderr); code != 2 {
+				t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "installers requires exactly one of -server or -server-mode") {
+				t.Fatalf("stderr=%q", stderr.String())
+			}
+		})
+	}
+}

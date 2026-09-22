@@ -11,11 +11,14 @@ import (
 	"strings"
 )
 
+const InstallerServerModeRequest = "request"
+
 type InstallerManifest struct {
-	Schema   int                 `json:"schema"`
-	Version  string              `json:"version"`
-	Server   string              `json:"server"`
-	Packages map[string]Artifact `json:"packages"`
+	Schema     int                 `json:"schema"`
+	Version    string              `json:"version"`
+	Server     string              `json:"server,omitempty"`
+	ServerMode string              `json:"server_mode,omitempty"`
+	Packages   map[string]Artifact `json:"packages"`
 }
 
 func VerifyInstallerManifest(raw, signature []byte, publicKey ed25519.PublicKey) (InstallerManifest, error) {
@@ -41,16 +44,25 @@ func VerifyInstallerManifest(raw, signature []byte, publicKey ed25519.PublicKey)
 }
 
 func (manifest InstallerManifest) validate() error {
-	if manifest.Schema != 1 {
-		return errors.New("unsupported installer manifest schema")
-	}
 	version, err := ParseVersion(manifest.Version)
 	if err != nil {
 		return fmt.Errorf("invalid installer version: %w", err)
 	}
-	server, err := url.Parse(manifest.Server)
-	if err != nil || server.Host == "" || (server.Scheme != "ws" && server.Scheme != "wss") || server.User != nil || server.Fragment != "" {
-		return errors.New("invalid installer server URL")
+	switch manifest.Schema {
+	case 1:
+		if manifest.ServerMode != "" {
+			return errors.New("schema 1 installer manifest cannot set server_mode")
+		}
+		server, err := url.Parse(manifest.Server)
+		if err != nil || server.Host == "" || (server.Scheme != "ws" && server.Scheme != "wss") || server.User != nil || server.Fragment != "" {
+			return errors.New("invalid installer server URL")
+		}
+	case 2:
+		if manifest.Server != "" || manifest.ServerMode != InstallerServerModeRequest {
+			return errors.New("schema 2 installer manifest requires request server mode")
+		}
+	default:
+		return errors.New("unsupported installer manifest schema")
 	}
 	expectedFiles := map[string]string{
 		"windows-amd64": "spacechat-windows-amd64-" + version.String() + ".zip",

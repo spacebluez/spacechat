@@ -60,6 +60,39 @@ func TestVerifyInstallerManifestAcceptsExactSignedPackages(t *testing.T) {
 	}
 }
 
+func TestVerifyInstallerManifestAcceptsRequestAddressMode(t *testing.T) {
+	manifest := validInstallerManifest()
+	manifest.Schema = 2
+	manifest.Server = ""
+	manifest.ServerMode = InstallerServerModeRequest
+	raw, signature, publicKey := signInstallerManifest(t, manifest)
+	verified, err := VerifyInstallerManifest(raw, signature, publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.Server != "" || verified.ServerMode != InstallerServerModeRequest {
+		t.Fatalf("verified manifest = %+v", verified)
+	}
+}
+
+func TestVerifyInstallerManifestRejectsMixedAddressModes(t *testing.T) {
+	for name, mutate := range map[string]func(*InstallerManifest){
+		"schema one with mode":    func(m *InstallerManifest) { m.ServerMode = InstallerServerModeRequest },
+		"schema two with server":  func(m *InstallerManifest) { m.Schema = 2; m.ServerMode = InstallerServerModeRequest },
+		"schema two without mode": func(m *InstallerManifest) { m.Schema = 2; m.Server = "" },
+		"unknown mode":            func(m *InstallerManifest) { m.Schema = 2; m.Server = ""; m.ServerMode = "proxy" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			manifest := validInstallerManifest()
+			mutate(&manifest)
+			raw, signature, publicKey := signInstallerManifest(t, manifest)
+			if _, err := VerifyInstallerManifest(raw, signature, publicKey); err == nil {
+				t.Fatal("invalid address mode accepted")
+			}
+		})
+	}
+}
+
 func TestVerifyInstallerManifestRejectsUnsafeCatalogs(t *testing.T) {
 	tests := map[string]func(*InstallerManifest){
 		"unknown schema":       func(manifest *InstallerManifest) { manifest.Schema = 2 },
