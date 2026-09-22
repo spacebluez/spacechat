@@ -5,6 +5,9 @@
 /.cache/
 /.worktrees/
 *.key
+/.env
+/deploy/docker/tls/*
+!/deploy/docker/tls/README.md
 
 __pycache__/
 *.pyc
