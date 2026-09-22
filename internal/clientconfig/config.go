@@ -78,9 +78,14 @@ func decode(raw []byte) (Config, error) {
 				return Config{}, errors.New("client config contains duplicate allow_insecure fields")
 			}
 			seenAllowInsecure = true
-			if err = decoder.Decode(&config.AllowInsecure); err != nil {
+			var allowInsecure *bool
+			if err = decoder.Decode(&allowInsecure); err != nil {
 				return Config{}, fmt.Errorf("decode configured allow_insecure: %w", err)
 			}
+			if allowInsecure == nil {
+				return Config{}, errors.New("configured allow_insecure must be a boolean")
+			}
+			config.AllowInsecure = *allowInsecure
 		default:
 			return Config{}, errors.New("client config contains an unsupported field")
 		}

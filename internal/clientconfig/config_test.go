@@ -42,6 +42,7 @@ func TestLoadAcceptsAllowInsecureWithStrictJSONDecoding(t *testing.T) {
 
 	invalid := []string{
 		`{"server":"ws://chat/ws","allow_insecure":"yes"}`,
+		`{"server":"ws://chat/ws","allow_insecure":null}`,
 		`{"server":"ws://chat/ws","allow_insecure":true,"allow_insecure":false}`,
 		`{"server":"ws://chat/ws","extra":true}`,
 		`{"server":"http://chat/ws"}`,
