@@ -22,20 +22,21 @@ import (
 )
 
 type serverConfig struct {
-	address             string
-	databasePath        string
-	allowedNetworks     string
-	encryptionKeyFile   string
-	adminSocket         string
-	tlsCertificate      string
-	tlsKey              string
-	kaomojiPath         string
-	allowInsecure       bool
-	updateDirectory     string
-	installerDirectory  string
-	updatePublicKeyFile string
-	validateUpdates     bool
-	publicURL           string
+	address                 string
+	databasePath            string
+	allowedNetworks         string
+	encryptionKeyFile       string
+	adminSocket             string
+	tlsCertificate          string
+	tlsKey                  string
+	kaomojiPath             string
+	allowInsecure           bool
+	updateDirectory         string
+	installerDirectory      string
+	updatePublicKeyFile     string
+	validateUpdates         bool
+	publicURL               string
+	initializeEncryptionKey bool
 }
 
 func parseConfig(args []string) (serverConfig, error) {
@@ -56,6 +57,7 @@ func parseConfig(args []string) (serverConfig, error) {
 	set.StringVar(&config.updatePublicKeyFile, "update-public-key-file", "", "Base64 Ed25519 update public key file")
 	set.BoolVar(&config.validateUpdates, "validate-updates", false, "Validate update catalog and exit")
 	set.StringVar(&config.publicURL, "public-url", os.Getenv("SPACECHAT_PUBLIC_URL"), "Public ws[s] URL used by dynamic installer scripts")
+	set.BoolVar(&config.initializeEncryptionKey, "init-encryption-key", false, "Create a database encryption key only when both key and database are absent")
 	if err := set.Parse(args); err != nil {
 		return serverConfig{}, err
 	}
@@ -72,6 +74,13 @@ func parseConfig(args []string) (serverConfig, error) {
 		return serverConfig{}, errors.New("-validate-updates requires an update directory and public key")
 	}
 	return config, nil
+}
+
+func initializeEncryptionKey(config serverConfig) error {
+	if !config.initializeEncryptionKey || config.validateUpdates {
+		return nil
+	}
+	return securestore.EnsureKey(config.encryptionKeyFile, config.databasePath)
 }
 
 func loadInstallerOptions(config serverConfig) ([]server.RoomsOption, *server.InstallerCatalog, error) {
@@ -163,6 +172,10 @@ func main() {
 	if installerCatalog != nil {
 		manifest := installerCatalog.Manifest()
 		slog.Info("client installers enabled", "version", manifest.Version)
+	}
+	if err := initializeEncryptionKey(config); err != nil {
+		slog.Error("initialize encryption key", "error", err)
+		os.Exit(1)
 	}
 	if config.validateUpdates {
 		return

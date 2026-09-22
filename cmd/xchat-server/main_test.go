@@ -14,12 +14,21 @@ import (
 	"strings"
 	"testing"
 
+	"xchat/internal/securestore"
 	"xchat/internal/server"
 )
 
 func TestParseConfigRequiresPairedUpdateFlags(t *testing.T) {
-	if _, err := parseConfig([]string{}); err != nil {
+	config, err := parseConfig([]string{})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if config.initializeEncryptionKey {
+		t.Fatal("encryption key initialization is enabled by default")
+	}
+	config, err = parseConfig([]string{"-init-encryption-key"})
+	if err != nil || !config.initializeEncryptionKey {
+		t.Fatalf("encryption key initialization config=%+v err=%v", config, err)
 	}
 	for _, args := range [][]string{
 		{"-update-dir", "/updates"},
@@ -30,7 +39,7 @@ func TestParseConfigRequiresPairedUpdateFlags(t *testing.T) {
 			t.Fatalf("unpaired update flags accepted: %v", args)
 		}
 	}
-	config, err := parseConfig([]string{
+	config, err = parseConfig([]string{
 		"-update-dir", "/updates", "-update-public-key-file", "/key", "-installer-dir", "/installers",
 		"-tls-cert", "/tls.crt", "-tls-key", "/tls.key", "-kaomoji", "/kaomoji.json",
 	})
@@ -49,6 +58,56 @@ func TestParseConfigRequiresPairedUpdateFlags(t *testing.T) {
 	}
 	if _, err = parseConfig([]string{"-validate-updates"}); err == nil {
 		t.Fatal("update validation without a catalog was accepted")
+	}
+}
+
+func TestInitializeEncryptionKeyRequiresOptIn(t *testing.T) {
+	directory := t.TempDir()
+	keyPath := filepath.Join(directory, "encryption.key")
+	if err := initializeEncryptionKey(serverConfig{
+		encryptionKeyFile: keyPath,
+		databasePath:      filepath.Join(directory, "rooms.db"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(keyPath); !os.IsNotExist(err) {
+		t.Fatalf("default configuration created an encryption key: %v", err)
+	}
+}
+
+func TestInitializeEncryptionKeyCreatesKeyWhenEnabled(t *testing.T) {
+	directory := t.TempDir()
+	keyPath := filepath.Join(directory, "encryption.key")
+	if err := initializeEncryptionKey(serverConfig{
+		encryptionKeyFile:       keyPath,
+		databasePath:            filepath.Join(directory, "rooms.db"),
+		initializeEncryptionKey: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	key, err := securestore.ReadKey(keyPath)
+	if err != nil || len(key) != 32 {
+		t.Fatalf("key=%x err=%v", key, err)
+	}
+}
+
+func TestInitializeEncryptionKeySkipsUpdateValidation(t *testing.T) {
+	directory := t.TempDir()
+	keyPath := filepath.Join(directory, "encryption.key")
+	databasePath := filepath.Join(directory, "rooms.db")
+	if err := os.WriteFile(databasePath, []byte("existing database"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeEncryptionKey(serverConfig{
+		encryptionKeyFile:       keyPath,
+		databasePath:            databasePath,
+		initializeEncryptionKey: true,
+		validateUpdates:         true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(keyPath); !os.IsNotExist(err) {
+		t.Fatalf("update validation initialized an encryption key: %v", err)
 	}
 }
 
