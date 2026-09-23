@@ -19,9 +19,9 @@ trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 printf '%s\n' 'build-context exclusion fixture, not a real key' > "$secret"
 
-docker build --build-arg GOPROXY --target server -t "$server_image" .
-docker build --target cleanup -t "$cleanup_image" .
-docker build --build-arg GOPROXY --build-arg WINDOWS_TERMINAL_URL --target artifacts -t "$artifacts_image" .
+docker build --build-arg SPACECHAT_BASE_IMAGE_PREFIX --build-arg GOPROXY --target server -t "$server_image" .
+docker build --build-arg SPACECHAT_BASE_IMAGE_PREFIX --target cleanup -t "$cleanup_image" .
+docker build --build-arg SPACECHAT_BASE_IMAGE_PREFIX --build-arg GOPROXY --build-arg WINDOWS_TERMINAL_URL --target artifacts -t "$artifacts_image" .
 
 docker run --rm --entrypoint sh "$server_image" -ec '
     test ! -e /usr/local/go

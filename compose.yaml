@@ -4,6 +4,7 @@ services:
       context: .
       target: artifacts
       args:
+        SPACECHAT_BASE_IMAGE_PREFIX: ${SPACECHAT_BASE_IMAGE_PREFIX:-docker.io/library}
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
         WINDOWS_TERMINAL_URL: ${WINDOWS_TERMINAL_URL:-https://github.com/microsoft/terminal/releases/download/v1.24.11911.0/Microsoft.WindowsTerminal_1.24.11911.0_x64.zip}
     environment:
@@ -32,6 +33,7 @@ services:
       context: .
       target: server
       args:
+        SPACECHAT_BASE_IMAGE_PREFIX: ${SPACECHAT_BASE_IMAGE_PREFIX:-docker.io/library}
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
     depends_on:
       artifacts:
@@ -64,6 +66,8 @@ services:
     build:
       context: .
       target: cleanup
+      args:
+        SPACECHAT_BASE_IMAGE_PREFIX: ${SPACECHAT_BASE_IMAGE_PREFIX:-docker.io/library}
     depends_on:
       server:
         condition: service_healthy

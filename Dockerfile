@@ -1,4 +1,5 @@
-FROM golang:1.26.0-bookworm AS go-build
+ARG SPACECHAT_BASE_IMAGE_PREFIX=docker.io/library
+FROM ${SPACECHAT_BASE_IMAGE_PREFIX}/golang:1.26.0-bookworm AS go-build
 WORKDIR /src
 COPY go.mod go.sum ./
 ARG GOPROXY=https://proxy.golang.org,direct
@@ -28,7 +29,7 @@ COPY --chmod=0755 deploy/docker/build-artifacts.sh ./deploy/docker/build-artifac
 ENV GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local
 ENTRYPOINT ["/src/deploy/docker/build-artifacts.sh"]
 
-FROM alpine:3.22 AS server
+FROM ${SPACECHAT_BASE_IMAGE_PREFIX}/alpine:3.22 AS server
 RUN apk add --no-cache ca-certificates su-exec \
  && addgroup -S -g 10001 spacechat \
  && adduser -S -D -H -u 10001 -G spacechat spacechat \
@@ -42,7 +43,7 @@ RUN chmod 0755 /usr/local/bin/server-entrypoint.sh /usr/local/bin/healthcheck.sh
 EXPOSE 18081
 ENTRYPOINT ["/usr/local/bin/server-entrypoint.sh"]
 
-FROM python:3.13-alpine3.22 AS cleanup
+FROM ${SPACECHAT_BASE_IMAGE_PREFIX}/python:3.13-alpine3.22 AS cleanup
 RUN addgroup -S -g 10001 spacechat \
  && adduser -S -D -H -u 10001 -G spacechat spacechat
 WORKDIR /app

@@ -231,10 +231,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod 'http:
 | `SPACECHAT_SIGNING_KEY_FILE` | `./deploy/docker/default-update-signing.seed`，更新签名 seed 文件 |
 | `SPACECHAT_CLIENT_CA_FILE` | `./deploy/docker/empty-client-ca.pem`，可选的公开内部 CA 证书 |
 | `SPACECHAT_TLS_DIR` | `./deploy/docker/tls`，服务端证书目录 |
+| `SPACECHAT_BASE_IMAGE_PREFIX` | `docker.io/library`，三个基础镜像的仓库前缀；不含协议头或末尾 `/` |
 | `GOPROXY` | `https://proxy.golang.org,direct`，镜像构建时的 Go 模块源；可替换为可访问的镜像源 |
 | `WINDOWS_TERMINAL_URL` | 默认微软官方 GitHub 发布地址；可指向同版本 ZIP 的下载缓存，固定 SHA-256 校验仍生效 |
 
 健康检查始终允许容器本机回环访问，不依赖外部 CIDR 白名单。服务端按 TCP 连接实际来源做访问控制；不信任转发头。Docker 端口转发或反向代理可能改变服务端看到的来源 IP，需要在宿主机防火墙或代理入口同时限制来源。
+
+若构建在 `load metadata` 阶段报 `registry-1.docker.io` 连接超时，可通过 [AWS ECR Public 的 Docker 官方镜像入口](https://aws.amazon.com/blogs/containers/docker-official-images-now-available-on-amazon-elastic-container-registry-public/) 下载基础镜像：
+
+```sh
+SPACECHAT_BASE_IMAGE_PREFIX=public.ecr.aws/docker/library docker compose up -d --build
+```
+
+也可在 `.env` 中设置 `SPACECHAT_BASE_IMAGE_PREFIX=public.ecr.aws/docker/library`，随后继续使用原启动命令。该配置一起切换 Go、Alpine 和 Python 基础镜像，版本号不变。Go 模块和 Windows Terminal 的下载分别由 `GOPROXY`、`WINDOWS_TERMINAL_URL` 控制；ECR 入口也需要部署主机能够访问。
 
 ### 签名密钥与 WSS
 

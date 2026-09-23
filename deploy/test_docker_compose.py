@@ -57,6 +57,10 @@ class DockerComposeTests(unittest.TestCase):
         self.assertEqual({"release-assets", "data", "admin-runtime"}, set(config["volumes"]))
         for name, service in services.items():
             self.assertEqual(name, service["build"]["target"])
+            self.assertEqual(
+                "docker.io/library",
+                service["build"]["args"]["SPACECHAT_BASE_IMAGE_PREFIX"],
+            )
         self.assertEqual(
             "service_completed_successfully",
             services["server"]["depends_on"]["artifacts"]["condition"],
@@ -124,8 +128,15 @@ class DockerComposeTests(unittest.TestCase):
                 SPACECHAT_CLIENT_CA_FILE=str(ca), SPACECHAT_TLS_DIR=str(tls),
                 GOPROXY="https://proxy.example",
                 WINDOWS_TERMINAL_URL="https://downloads.example/terminal.zip",
+                SPACECHAT_BASE_IMAGE_PREFIX="public.ecr.aws/docker/library",
             )
         services = config["services"]
+        for service in services.values():
+            self.assertEqual(
+                "public.ecr.aws/docker/library",
+                service["build"]["args"]["SPACECHAT_BASE_IMAGE_PREFIX"],
+            )
+            self.assertNotIn("SPACECHAT_BASE_IMAGE_PREFIX", service.get("environment", {}))
         artifacts, server = services["artifacts"], services["server"]
         for service in (artifacts, server):
             self.assertEqual("https://proxy.example", service["build"]["args"]["GOPROXY"])

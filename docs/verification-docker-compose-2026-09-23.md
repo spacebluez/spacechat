@@ -76,6 +76,17 @@ Docker Hub 和 Go 公共下载源在本机超时，GitHub 大文件下载也出�
 
 因此本次确认的是容器构建和运行行为；不代表本机目前能够从所有默认公网下载地址完成无缓存构建。重新构建时可按 README 配置可访问的下载源。
 
+## 镜像源切换复验
+
+云服务器在 Docker Hub 元数据请求阶段超时后，新增 `SPACECHAT_BASE_IMAGE_PREFIX`，统一控制三个基础镜像的仓库前缀。默认 `docker.io/library`；可设置为 `public.ecr.aws/docker/library`，直接由 Compose 解析 ECR 地址。
+
+- Compose 配置测试 3 项通过，覆盖默认前缀、三个服务的前缀覆盖和构建参数不进入运行环境。
+- 在本机 WSL 执行 `docker compose build --pull`，三个 ECR 元数据请求均成功，解析到上表中的相同摘要；三个目标构建通过。
+- `test-images.sh` 使用相同 ECR 前缀运行，镜像行为检查通过。
+- Go 模块和 Terminal 下载仍复用已校验的构建缓存；本次未在用户云服务器执行，也不代表其到 ECR 的连接已确认正常。
+
+本次复验日志为 `.cache/docker-validation/spacechat-ecr-build.log` 和 `spacechat-ecr-images.log`。
+
 ## 验证边界
 
 此前原生 Windows 回归出现 Linux 路径、目录同步、执行权限、shell 和 Unix socket 相关失败；本次 Linux 全量回归已通过。没有将这些结果描述为原生 Windows 回归通过。
