@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -32,26 +31,20 @@ func renderTextInput(field textinput.Model) string {
 }
 func (model *Model) compactLogin() bool { return model.width < 60 || model.height < 20 }
 func (model *Model) loginView() string {
-	width := max(1, model.width-4)
-	if !model.compactLogin() {
-		width -= 8
-	}
-	fit := func(text string) string { return ansi.Truncate(text, width, "…") }
 	lines := []string{
-		fit(accent.Render("XCHAT / 内网聊天室")),
-		fit(muted.Render(model.address)),
-		"昵称",
-		fit(renderTextInput(model.nickname)),
+		accent.Render("SpaceChat / 进入房间"),
+		muted.Render(model.address),
+		fieldLabel("昵称", model.nickname),
+		renderTextInput(model.nickname),
 		"",
-		"房间口令",
-		fit(renderTextInput(model.accessKey)),
-		fit(warning.Render(model.notice)),
-		fit(muted.Render("Tab 切换 · Enter 继续/进入 · Ctrl+C 退出")),
-		fit(muted.Render("同口令进入同房间；昵称不是身份凭证")),
+		fieldLabel("房间口令", model.accessKey),
+		renderTextInput(model.accessKey),
+		warning.Render(model.notice),
+		muted.Render("Tab 切换 · Enter 进入 · Ctrl+C 退出"),
+		muted.Render("同口令进入同房间；昵称不是身份凭证"),
 	}
-	content := strings.Join(lines, "\n")
-	if model.compactLogin() {
-		return content
+	if !model.compactLogin() {
+		lines = append(lines[:2], append([]string{"", rule(model.formWidth()), ""}, lines[2:]...)...)
 	}
-	return lipgloss.NewStyle().Padding(1, 1).Render(panel.Width(model.width-8).Padding(1, 1).Render(content))
+	return model.formView(lines)
 }

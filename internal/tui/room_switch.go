@@ -34,6 +34,8 @@ func (model *Model) openRoomSwitch() tea.Cmd {
 	nickname.CharLimit = 20
 	nickname.Prompt = "> "
 	nickname.SetValue(model.name)
+	styleTextInput(&key)
+	styleTextInput(&nickname)
 	model.switcher = &roomSwitch{key: key, nickname: nickname}
 	model.input.Blur()
 	model.resize()

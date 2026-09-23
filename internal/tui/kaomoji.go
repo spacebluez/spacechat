@@ -90,6 +90,7 @@ func (model *Model) openKaomojiPicker() tea.Cmd {
 	search.Placeholder = "搜索颜文字"
 	search.CharLimit = 40
 	search.Width = max(1, model.width-6)
+	styleTextInput(&search)
 	model.picker = &kaomojiPicker{search: search, category: -1, categories: model.catalog}
 	model.input.Blur()
 	return tea.Batch(model.picker.search.Focus(), model.refreshKaomoji())

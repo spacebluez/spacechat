@@ -34,6 +34,7 @@ func (model *Model) openMembers() tea.Cmd {
 	search.Placeholder = "搜索成员"
 	search.CharLimit = 20
 	search.Width = max(1, model.width-6)
+	styleTextInput(&search)
 	model.members = &memberPicker{search: search}
 	model.input.Blur()
 	return model.members.search.Focus()

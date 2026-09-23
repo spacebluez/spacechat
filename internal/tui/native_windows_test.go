@@ -113,7 +113,7 @@ func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size
 	defer windows.CloseHandle(process.Process)
 	defer windows.CloseHandle(process.Thread)
 	defer windows.TerminateProcess(process.Process, 1)
-	eventually(t, "login screen not rendered", func() bool { return capture.contains("XCHAT") })
+	eventually(t, "login screen not rendered", func() bool { return capture.contains("SpaceChat") })
 	time.Sleep(650 * time.Millisecond)
 	if err = windows.ResizePseudoConsole(pseudo, windows.Coord{X: 24, Y: 10}); err != nil {
 		t.Fatal(err)
@@ -203,7 +203,7 @@ func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size
 	eventually(t, "Escape did not cancel switch dialog", func() bool {
 		capture.mu.Lock()
 		defer capture.mu.Unlock()
-		return strings.Contains(capture.buffer.String()[beforeCancel:], "XCHAT")
+		return strings.Contains(capture.buffer.String()[beforeCancel:], "SpaceChat")
 	})
 	if _, err = io.WriteString(input, "\x1bOQswitch-target\r"); err != nil {
 		t.Fatal(err)

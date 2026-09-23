@@ -91,15 +91,18 @@ func newWithClientFactory(address string, info client.Info, factory clientFactor
 	keyInput.EchoMode = textinput.EchoPassword
 	keyInput.EchoCharacter = '*'
 	keyInput.Prompt = "> "
+	styleTextInput(&nickname)
+	styleTextInput(&keyInput)
 	input := textarea.New()
 	input.ShowLineNumbers = false
 	input.SetHeight(3)
 	input.MaxHeight = 2000
 	input.KeyMap.Paste = key.NewBinding(key.WithKeys("ctrl+v", "shift+insert"))
 	input.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
-	input.Placeholder = "输入消息，Enter 发送，Shift+Enter 换行"
+	input.Placeholder = "输入消息…"
 	input.CharLimit = 2000
 	input.Prompt = "> "
+	styleComposer(&input)
 	model := &Model{address: address, clientInfo: info, clientFactory: factory, nickname: nickname, accessKey: keyInput, input: input, viewport: viewport.New(70, 15), width: 100, height: 26, pending: make(map[string]string), state: "未连接"}
 	model.recalls = make(map[string]int64)
 	if len(configuration) > 0 {
@@ -522,20 +525,16 @@ func (model *Model) merge(incoming []protocol.Message) {
 	sort.Slice(model.messages, func(left, right int) bool { return model.messages[left].ID < model.messages[right].ID })
 }
 func (model *Model) resize() {
-	width := model.width - 4
+	width := model.contentWidth()
 	if model.width >= 90 {
-		width -= 24
+		width -= 23
 	}
-	model.viewport.Width = max(10, width)
+	model.viewport.Width = max(1, width)
 	inputHeight := min(3, max(1, model.height-9))
 	model.input.SetHeight(inputHeight)
-	model.viewport.Height = max(1, model.height-7-inputHeight)
-	model.input.SetWidth(max(5, model.width-4))
-	loginWidth := max(1, model.width-4)
-	if !model.compactLogin() {
-		loginWidth -= 8
-	}
-	model.nickname.Width = max(1, min(36, loginWidth-3))
+	model.viewport.Height = max(1, model.height-5-inputHeight)
+	model.input.SetWidth(model.viewport.Width)
+	model.nickname.Width = max(1, model.formWidth()-3)
 	model.accessKey.Width = model.nickname.Width
 	if model.switcher != nil {
 		model.switcher.key.Width = model.nickname.Width

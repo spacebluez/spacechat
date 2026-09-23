@@ -78,23 +78,14 @@ func TestLegacyConsoleLogin(t *testing.T) {
 	time.Sleep(1800 * time.Millisecond)
 	screen := consoleScreen(t, process.ProcessId)
 	t.Log("legacy console screen captured after blinking")
-	inside := false
-	for _, line := range strings.Split(screen, "\n") {
-		if strings.Contains(line, "╭") {
-			inside = true
-			continue
-		}
-		if strings.Contains(line, "╰") {
-			break
-		}
-		if inside && strings.Count(line, "│") != 2 {
-			t.Errorf("form row wrapped or left stale content: %q", line)
-		}
+	if strings.Count(screen, "SpaceChat") != 1 {
+		t.Fatal("login title is missing or duplicated")
 	}
-	labels := 0
-	for _, line := range strings.Split(screen, "\n") {
+	labels, keyRow := 0, -1
+	for row, line := range strings.Split(screen, "\n") {
 		if strings.Contains(line, "房间口令") && !strings.Contains(line, "输入") {
 			labels++
+			keyRow = row
 		}
 	}
 	if labels != 1 {
@@ -106,7 +97,11 @@ func TestLegacyConsoleLogin(t *testing.T) {
 	time.Sleep(650 * time.Millisecond)
 	screen = consoleScreen(t, process.ProcessId)
 	if strings.Count(screen, "房间口令") != 1 || strings.Contains(screen, "masked-room-key") || !strings.Contains(screen, "界面验收") {
-		t.Fatal("focus or typing corrupted the login screen")
+		t.Fatalf("focus or typing corrupted the login screen:\n%s", screen)
+	}
+	lines := strings.Split(screen, "\n")
+	if keyRow >= len(lines) || !strings.Contains(lines[keyRow], "房间口令") {
+		t.Fatal("typing moved the room key field to another row")
 	}
 }
 
