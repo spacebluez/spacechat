@@ -39,7 +39,7 @@ func styleComposer(field *textarea.Model) {
 
 func (model *Model) contentWidth() int { return max(1, model.width-4) }
 
-// Keep two columns free for ambiguous-width characters in the legacy console.
+// Leave a small right margin around the painted frame.
 func (model *Model) screen(content string) string {
 	width := model.contentWidth()
 	const reset = "\x1b[0m"
@@ -51,7 +51,7 @@ func (model *Model) screen(content string) string {
 	}
 	lines = lines[:min(len(lines), model.height)]
 	for index, line := range lines {
-		line = ansi.Truncate(line, width, "…")
+		line = ansi.Truncate(line, width, "...")
 		painted := surface.Render(" " + line + strings.Repeat(" ", max(0, width-ansi.StringWidth(line))) + " ")
 		// Nested Lip Gloss styles reset colors; restore the frame color in gaps.
 		lines[index] = painted
@@ -62,11 +62,17 @@ func (model *Model) screen(content string) string {
 	return strings.Join(lines, "\n")
 }
 
-func rule(width int) string { return divider.Render(strings.Repeat("─", max(0, width))) }
+func rule(width int) string {
+	glyph := "─"
+	if ansi.StringWidth(glyph) != 1 {
+		glyph = "-"
+	}
+	return divider.Render(strings.Repeat(glyph, max(0, width)))
+}
 
 func alignedLine(left, right string, width int) string {
 	if ansi.StringWidth(left)+ansi.StringWidth(right)+2 > width {
-		return ansi.Truncate(left, width, "…")
+		return ansi.Truncate(left, width, "...")
 	}
 	return left + strings.Repeat(" ", width-ansi.StringWidth(left)-ansi.StringWidth(right)) + right
 }

@@ -160,6 +160,7 @@ func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size
 	if page.Messages[0].Nickname != "终端验收" || page.Messages[0].Body != "Windows 中文终端验收" {
 		t.Fatalf("text changed: %+v", page)
 	}
+	assertVisibleChatFrame(t, process.ProcessId)
 	sendConsoleText(t, process.ProcessId, "first line")
 	sendConsoleKey(t, process.ProcessId, 13, '\r', 16)
 	sendConsoleText(t, process.ProcessId, "second line")
@@ -292,6 +293,7 @@ func testWindowsExecutableInPseudoTerminal(t *testing.T, executable string, size
 	if err = windows.ResizePseudoConsole(pseudo, windows.Coord{X: 40, Y: 18}); err != nil {
 		t.Fatal(err)
 	}
+	assertVisibleChatFrame(t, process.ProcessId)
 	if _, err = io.WriteString(input, "\x1b[5~\x1b[6~\x03"); err != nil {
 		t.Fatal(err)
 	}

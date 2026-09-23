@@ -10,8 +10,43 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/cellbuf"
 	"github.com/muesli/termenv"
+	"github.com/rivo/uniseg"
 	"xchat/internal/protocol"
 )
+
+func TestWideAmbiguousCharactersFitChatFrame(t *testing.T) {
+	previous := uniseg.EastAsianAmbiguousWidth
+	uniseg.EastAsianAmbiguousWidth = 2
+	t.Cleanup(func() { uniseg.EastAsianAmbiguousWidth = previous })
+	for _, width := range []int{24, 40, 60, 90, 120, 238} {
+		model := kaomojiModel()
+		model.name, model.state = "小明·测试", "已连接"
+		model.users = []string{model.name, "其他成员"}
+		model.input.SetValue(strings.Repeat("·", 12) + " 中文草稿")
+		body := strings.Repeat("中文·", 30) + "\n末行"
+		message := protocol.Message{Nickname: model.name, Body: body, CreatedAt: "2026-09-23T06:32:00Z"}
+		model.messages = []protocol.Message{message}
+		model.Update(tea.WindowSizeMsg{Width: width, Height: 30})
+		lines := strings.Split(model.chatView(), "\n")
+		if len(lines) != 30 {
+			t.Fatalf("%d-column chat has %d rows", width, len(lines))
+		}
+		for row, line := range lines {
+			if ansi.StringWidth(line) > width-4 {
+				t.Fatalf("%d-column chat overflows row %d: %q", width, row, ansi.Strip(line))
+			}
+		}
+		if model.viewport.Width >= 58 {
+			var reconstructed strings.Builder
+			for _, line := range model.messageLines(message) {
+				reconstructed.WriteString(ansi.Cut(ansi.Strip(line), 25, model.viewport.Width))
+			}
+			if reconstructed.String() != strings.ReplaceAll(body, "\n", "") {
+				t.Fatal("wide ambiguous characters were lost during wrapping")
+			}
+		}
+	}
+}
 
 func TestChatLayoutKeepsComposerAndSidebarWithinFrame(t *testing.T) {
 	for _, size := range [][2]int{{24, 10}, {35, 15}, {60, 20}, {89, 24}, {90, 10}, {100, 30}, {140, 40}} {

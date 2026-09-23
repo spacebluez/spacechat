@@ -8,8 +8,29 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/erikgeiser/coninput"
+	"github.com/rivo/uniseg"
 	"golang.org/x/sys/windows"
 )
+
+func consoleAmbiguousWidth() int {
+	// Probe an inactive buffer with the console's font without touching the
+	// visible screen. Code pages alone do not describe the font's cell widths.
+	buffer, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("CreateConsoleScreenBuffer").Call(
+		windows.GENERIC_READ|windows.GENERIC_WRITE, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, 0, 1, 0)
+	if buffer == ^uintptr(0) {
+		return 1
+	}
+	probe := os.NewFile(buffer, "console-width-probe")
+	defer probe.Close()
+	if _, err := probe.WriteString("\u00b7"); err != nil {
+		return 1
+	}
+	var info windows.ConsoleScreenBufferInfo
+	if err := windows.GetConsoleScreenBufferInfo(windows.Handle(buffer), &info); err == nil && info.CursorPosition.X == 2 {
+		return 2
+	}
+	return 1
+}
 
 func keyMessage(event coninput.KeyEventRecord) tea.KeyMsg {
 	shift := event.ControlKeyState.Contains(coninput.SHIFT_PRESSED)
@@ -133,6 +154,9 @@ func Run(model tea.Model) error {
 	output := windows.Handle(os.Stdout.Fd())
 	var originalOutput uint32
 	if err := windows.GetConsoleMode(output, &originalOutput); err == nil {
+		previousWidth := uniseg.EastAsianAmbiguousWidth
+		uniseg.EastAsianAmbiguousWidth = consoleAmbiguousWidth()
+		defer func() { uniseg.EastAsianAmbiguousWidth = previousWidth }()
 		if err := windows.SetConsoleMode(output, originalOutput|windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING|windows.DISABLE_NEWLINE_AUTO_RETURN); err != nil {
 			return err
 		}

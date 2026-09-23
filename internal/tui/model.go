@@ -81,7 +81,7 @@ func NewWithClientInfo(address string, info client.Info, configuration ...client
 
 func newWithClientFactory(address string, info client.Info, factory clientFactory, configuration ...client.Options) *Model {
 	nickname := textinput.New()
-	nickname.Placeholder = "输入昵称（1–20 字符）"
+	nickname.Placeholder = "输入昵称（1-20 字符）"
 	nickname.CharLimit = 20
 	nickname.Prompt = "> "
 	nickname.Focus()
@@ -99,7 +99,7 @@ func newWithClientFactory(address string, info client.Info, factory clientFactor
 	input.MaxHeight = 2000
 	input.KeyMap.Paste = key.NewBinding(key.WithKeys("ctrl+v", "shift+insert"))
 	input.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
-	input.Placeholder = "输入消息…"
+	input.Placeholder = "输入消息..."
 	input.CharLimit = 2000
 	input.Prompt = "> "
 	styleComposer(&input)

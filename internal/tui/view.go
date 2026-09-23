@@ -34,7 +34,7 @@ func (model *Model) messageLines(message protocol.Message) []string {
 		return []string{ansi.Hardwrap(heading, width, true), bodyStyle.Render(ansi.Hardwrap(body, width, true)), ""}
 	}
 	const nameWidth = 16
-	name := ansi.Truncate(message.Nickname, nameWidth, "…")
+	name := ansi.Truncate(message.Nickname, nameWidth, "...")
 	prefix := muted.Render(stamp) + "  " + nameStyle.Render(name+strings.Repeat(" ", nameWidth-ansi.StringWidth(name))) + "  "
 	indent := ansi.StringWidth(prefix)
 	wrapped := strings.Split(ansi.Hardwrap(body, width-indent, true), "\n")
@@ -96,7 +96,7 @@ func (model *Model) chatHeader() string {
 	if width < 40 {
 		return alignedLine(brand, status, width)
 	}
-	status += muted.Render(fmt.Sprintf(" · %s · %d 人", transport, len(model.users)))
+	status += muted.Render(fmt.Sprintf(" | %s | %d 人", transport, len(model.users)))
 	if width >= 65 {
 		brand += muted.Render(" / 口令房间")
 	}
@@ -117,7 +117,7 @@ func (model *Model) memberSidebar(height int) string {
 			name += " (你)"
 			style = self
 		}
-		lines = append(lines, accent.Render("· ")+style.Render(ansi.Truncate(name, width-2, "…")))
+		lines = append(lines, accent.Render("* ")+style.Render(ansi.Truncate(name, width-2, "...")))
 	}
 	if count < len(model.users) && available > 0 {
 		lines = append(lines, muted.Render(fmt.Sprintf("另有 %d 人", len(model.users)-count)))
@@ -127,7 +127,7 @@ func (model *Model) memberSidebar(height int) string {
 
 func (model *Model) chatView() string {
 	width := model.viewport.Width
-	status := self.Render(ansi.Truncate(model.name, 20, "…"))
+	status := self.Render(ansi.Truncate(model.name, 20, "..."))
 	if !model.viewport.AtBottom() {
 		status = muted.Render("正在浏览历史")
 	}
@@ -141,11 +141,11 @@ func (model *Model) chatView() string {
 	main := strings.Join([]string{model.viewport.View(), rule(width), model.input.View(), alignedLine(status, counter, width)}, "\n")
 	if model.width >= 90 {
 		height := model.viewport.Height + model.input.Height() + 2
-		separator := divider.Render(strings.TrimSuffix(strings.Repeat(" │ \n", height), "\n"))
+		separator := divider.Render(strings.TrimSuffix(strings.Repeat(" | \n", height), "\n"))
 		main = lipgloss.JoinHorizontal(lipgloss.Top, main, separator, model.memberSidebar(height))
 	}
-	footer := muted.Render("F2 换房 · F3 颜文字 · F4 @成员 · F5 撤回")
-	footer = alignedLine(footer, muted.Render("Enter 发送 · Shift+Enter 换行"), model.contentWidth())
+	footer := muted.Render("F2 换房 | F3 颜文字 | F4 @成员 | F5 撤回")
+	footer = alignedLine(footer, muted.Render("Enter 发送 | Shift+Enter 换行"), model.contentWidth())
 	return strings.Join([]string{model.chatHeader(), rule(model.contentWidth()), main, footer}, "\n")
 }
 
