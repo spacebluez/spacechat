@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"xchat/internal/uninstall"
 	"xchat/internal/update"
 )
 
@@ -19,6 +20,9 @@ type Streams struct {
 type CommandRunner func(path string, args []string, streams Streams) error
 
 func Run(layout update.Layout, goos string, args []string, streams Streams, runner CommandRunner) error {
+	if len(args) > 0 && args[0] == "uninstall" {
+		return uninstall.Run(layout, args[1:], streams.Stdout)
+	}
 	version, err := update.ReadCurrent(layout)
 	if err != nil {
 		return fmt.Errorf("read active SpaceChat version: %w", err)

@@ -84,3 +84,17 @@ func TestRunRejectsMissingAndSymlinkedClient(t *testing.T) {
 		t.Fatal("runner called for invalid client")
 	}
 }
+
+func TestUninstallHelpDoesNotLaunchOrReadCurrentClient(t *testing.T) {
+	var output bytes.Buffer
+	runner := func(string, []string, Streams) error {
+		t.Fatal("uninstall launched the client")
+		return nil
+	}
+	if err := Run(update.Layout{}, "linux", []string{"uninstall", "--help"}, Streams{Stdout: &output}, runner); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(output.Bytes(), []byte("spacechat uninstall [--purge]")) {
+		t.Fatal(output.String())
+	}
+}

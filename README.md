@@ -44,6 +44,24 @@ Linux：解压 `spacechat-linux-amd64-0.4.0.zip`，在该目录运行：
 sh ./install.sh 'wss://chat.example.invalid/ws' '0.4.0'
 ```
 
+## 客户端卸载
+
+Windows 和 Linux 均可在终端执行，无需连接服务器或管理员权限：
+
+```sh
+spacechat uninstall
+```
+
+这会删除启动器、所有已安装客户端版本、更新缓存和 SpaceChat 自带的 Windows Terminal，保留连接配置。需要一并删除配置时执行：
+
+```sh
+spacechat uninstall --purge
+```
+
+请先退出其他 SpaceChat 客户端和自带的终端窗口；有更新任务正在执行时会拒绝卸载。Windows 只清理当前用户 PATH 中的 SpaceChat 安装目录，启动器文件在命令退出后自动删除。Linux 只删除 `~/.local/bin/spacechat` 和安装器添加的 shell 配置块，保留该共享目录中的其他程序及用户自己的 shell 配置。卸载完成后重新打开终端；服务端、聊天记录以及另外下载的安装包不受影响。
+
+卸载命令由新版启动器提供。旧版在线更新只替换客户端，不会更新启动器；旧安装可先解压新安装包，在包内执行 `./spacechat uninstall`（Linux）或 `.\spacechat.exe uninstall`（Windows）卸载已有客户端，再重新安装。需要清除配置时同样追加 `--purge`。
+
 ## 消息撤回与 @成员
 
 F5 列出当前客户端发送、且在两分钟内的可撤回消息。确认后，房间中的新版客户端显示“消息已撤回”，服务端用加密撤回标记替换正文并删除该消息的 @名单。撤回按服务端时间判定，不依赖昵称认领消息；别人使用相同昵称不能撤回你的消息。
