@@ -189,9 +189,9 @@ go run ./cmd/spacechat-release installers -version 0.4.0 -server wss://chat.exam
 
 ## Docker Compose 一键部署
 
-需要 Docker Engine（Linux 容器）与 Docker Compose v2，宿主机无需 Go、PowerShell、Python 或 systemd。首次构建需要访问基础镜像、Go 模块源和 Windows Terminal 的 GitHub 发布地址。
+需要 Docker Engine（Linux 容器）与 Docker Compose v2，宿主机无需 Go、PowerShell、Python 或 systemd。默认通过 DaoCloud 下载基础镜像和 Windows Terminal，通过 `goproxy.cn` 下载 Go 模块，通过阿里云 Debian 镜像安装构建工具；无需预先修改宿主机的 Docker 镜像源。下载源均可在 `.env` 中覆盖。
 
-**默认以明文 WS 监听宿主机所有接口的 `18081` 端口，只适用于可信内网。如果端口可从公网访问，请先完成下文的 WSS 和访问控制配置。**
+**默认监听宿主机所有接口的 `18081` 端口，允许所有 IPv4、IPv6 来源，支持直接使用服务器公网 IP 安装和连接。未配置证书时使用明文 HTTP/WS；需要传输加密时按下文启用 HTTPS/WSS。** 云服务器还需在安全组或入口防火墙放行 TCP `18081`。
 
 ```sh
 git clone https://github.com/spacebluez/spacechat.git
@@ -203,19 +203,19 @@ docker compose logs -f server
 
 `artifacts` 首次启动会编译 Windows/Linux amd64 客户端并生成签名制品，正常结束状态为 `Exited (0)`。`server` 等待制品成功生成后启动，健康检查通过后再启动 `cleanup`。服务端进程和清理进程均以 UID/GID `10001` 运行；入口仅在准备卷权限和复制 TLS 证书时使用 root。制品生成失败时可查看 `docker compose logs artifacts`。
 
-假设服务器的内网地址为 `192.168.1.20`，Linux amd64 首装：
+假设服务器的公网 IP 为 `203.0.113.10`，Linux amd64 首装（客户端需有 `curl`、`unzip`、`sha256sum` 和 `mktemp`）：
 
 ```sh
-curl -fsSL http://192.168.1.20:18081/install/linux | sh
+curl -fsSL http://203.0.113.10:18081/install/linux | sh
 ```
 
 Windows amd64 首装：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod 'http://192.168.1.20:18081/install/windows' | Invoke-Expression"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod 'http://203.0.113.10:18081/install/windows' | Invoke-Expression"
 ```
 
-把示例 IP 替换为客户端实际能访问的地址。首装脚本默认用请求的主机和端口生成下载地址及 `ws://主机:端口/ws` 配置；直接 HTTPS 请求生成 WSS。WS 首装仅授权保存的安装地址使用明文，命令行改连其他远程 WS 地址仍需显式 `--allow-insecure`。
+把示例 IP 替换为客户端实际能访问的公网或内网地址，不需要域名。复制安装命令时使用纯 URL，不要包含 Markdown 的 `[地址](地址)` 格式。首装脚本默认用请求的主机和端口生成下载地址及 `ws://主机:端口/ws` 配置；直接 HTTPS 请求生成 WSS。WS 首装仅授权保存的安装地址使用明文，命令行改连其他远程 WS 地址仍需显式 `--allow-insecure`。
 
 ### 容器配置
 
@@ -226,24 +226,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod 'http:
 | `SPACECHAT_PORT` | `18081`，宿主机端口 |
 | `SPACECHAT_VERSION` | `0.4.0`，客户端与签名清单版本 |
 | `SPACECHAT_MINIMUM_VERSION` | `0.0.0`，最低兼容客户端版本 |
-| `SPACECHAT_ALLOW_CIDR` | 回环及 RFC1918 私网；逗号分隔的允许来源网段 |
-| `SPACECHAT_PUBLIC_URL` | 空；可指定 `ws://主机:端口/ws` 或 `wss://域名/ws` |
+| `SPACECHAT_ALLOW_CIDR` | `0.0.0.0/0,::/0`，允许所有 IPv4、IPv6 来源；可改为逗号分隔的允许网段 |
+| `SPACECHAT_PUBLIC_URL` | 空，按安装请求的 IP/主机和端口生成；可固定为 `ws://公网IP:18081/ws` 或 `wss://域名/ws` |
 | `SPACECHAT_SIGNING_KEY_FILE` | `./deploy/docker/default-update-signing.seed`，更新签名 seed 文件 |
 | `SPACECHAT_CLIENT_CA_FILE` | `./deploy/docker/empty-client-ca.pem`，可选的公开内部 CA 证书 |
 | `SPACECHAT_TLS_DIR` | `./deploy/docker/tls`，服务端证书目录 |
-| `SPACECHAT_BASE_IMAGE_PREFIX` | `docker.io/library`，三个基础镜像的仓库前缀；不含协议头或末尾 `/` |
-| `GOPROXY` | `https://proxy.golang.org,direct`，镜像构建时的 Go 模块源；可替换为可访问的镜像源 |
-| `WINDOWS_TERMINAL_URL` | 默认微软官方 GitHub 发布地址；可指向同版本 ZIP 的下载缓存，固定 SHA-256 校验仍生效 |
+| `SPACECHAT_BASE_IMAGE_PREFIX` | `docker.m.daocloud.io/library`，三个基础镜像的仓库前缀；不含协议头或末尾 `/` |
+| `GOPROXY` | `https://goproxy.cn,direct`，镜像构建时的 Go 模块源 |
+| `DEBIAN_MIRROR` | `https://mirrors.aliyun.com`，Debian 软件源站点；不含末尾 `/`，保留 Debian 软件包签名验证 |
+| `WINDOWS_TERMINAL_URL` | 默认 DaoCloud 文件镜像中的微软官方 GitHub 发布包；固定版本和 SHA-256 校验保持不变 |
 
-健康检查始终允许容器本机回环访问，不依赖外部 CIDR 白名单。服务端按 TCP 连接实际来源做访问控制；不信任转发头。Docker 端口转发或反向代理可能改变服务端看到的来源 IP，需要在宿主机防火墙或代理入口同时限制来源。
+健康检查始终允许容器本机回环访问，不依赖外部 CIDR 白名单。服务端按 TCP 连接实际来源做访问控制；不信任转发头。Docker 端口转发或反向代理可能改变服务端看到的来源 IP，如需限制来源，应在宿主机防火墙或代理入口同时配置。
 
-若构建在 `load metadata` 阶段报 `registry-1.docker.io` 连接超时，可通过 [AWS ECR Public 的 Docker 官方镜像入口](https://aws.amazon.com/blogs/containers/docker-official-images-now-available-on-amazon-elastic-container-registry-public/) 下载基础镜像：
+已有部署的 `.env` 会覆盖新默认值。若公网安装返回 `network not allowed`，把其中的 `SPACECHAT_ALLOW_CIDR` 改为 `0.0.0.0/0,::/0`，然后执行 `docker compose up -d --no-deps --force-recreate server`。只运行 `docker compose restart` 不会更新容器环境变量。需要限制访问时可改为具体 IP 的 `/32` 或自己的内网网段。
+
+默认下载源来自 [DaoCloud 镜像服务](https://github.com/DaoCloud/public-image-mirror)。镜像服务可能限流或缓存旧标签；如需使用 Docker Hub 和宿主机已配置的 `registry-mirrors`，可在 `.env` 中设置 `SPACECHAT_BASE_IMAGE_PREFIX=docker.io/library`。也可通过 [AWS ECR Public 的 Docker 官方镜像入口](https://aws.amazon.com/blogs/containers/docker-official-images-now-available-on-amazon-elastic-container-registry-public/) 下载基础镜像：
 
 ```sh
 SPACECHAT_BASE_IMAGE_PREFIX=public.ecr.aws/docker/library docker compose up -d --build
 ```
 
-也可在 `.env` 中设置 `SPACECHAT_BASE_IMAGE_PREFIX=public.ecr.aws/docker/library`，随后继续使用原启动命令。该配置一起切换 Go、Alpine 和 Python 基础镜像，版本号不变。Go 模块和 Windows Terminal 的下载分别由 `GOPROXY`、`WINDOWS_TERMINAL_URL` 控制；ECR 入口也需要部署主机能够访问。
+也可将这个前缀保存到 `.env`，随后继续使用原启动命令。该配置一起切换 Go、Alpine 和 Python 基础镜像，版本号不变。Go 模块和 Windows Terminal 的下载分别由 `GOPROXY`、`WINDOWS_TERMINAL_URL` 控制；切回官方源可设置：
+
+```dotenv
+SPACECHAT_BASE_IMAGE_PREFIX=docker.io/library
+GOPROXY=https://proxy.golang.org,direct
+DEBIAN_MIRROR=https://deb.debian.org
+WINDOWS_TERMINAL_URL=https://github.com/microsoft/terminal/releases/download/v1.24.11911.0/Microsoft.WindowsTerminal_1.24.11911.0_x64.zip
+```
+
+这些下载地址都需要部署主机能够访问。基础镜像加速不会代理容器内的软件包下载，因此 Debian 源单独由 `DEBIAN_MIRROR` 控制；Alpine 仍使用其默认软件源。正常构建会复用已经完成的层，避免无必要地使用 `--no-cache`。
 
 ### 签名密钥与 WSS
 
@@ -263,7 +275,7 @@ docker compose run --rm -T --no-deps --entrypoint openssl artifacts rand -base64
 
 使用内部 CA 时设置 `SPACECHAT_CLIENT_CA_FILE` 指向公开 CA PEM 文件，再重新生成制品；不要传入 TLS 私钥。首次通过 HTTPS 下载安装脚本和安装包的工具也必须信任该 CA：Linux 可先设置 `export CURL_CA_BUNDLE=/path/to/company-ca.pem`，Windows 应先把 CA 安装到当前用户信任库。
 
-公网部署必须在首次启动前完成：启用 WSS、设置 `SPACECHAT_PUBLIC_URL=wss://公开域名/ws`（非默认端口需带端口）、限制 `SPACECHAT_ALLOW_CIDR` 和入口防火墙、换成自有更新签名密钥。若反向代理终止 TLS，必须显式配置该公开 URL，并让代理覆盖 `/ws`、`/install/`、`/updates/`、`/api/`；代理到服务端的 WS 后端只能位于可信且受限的网络。动态首装不读取 `X-Forwarded-Proto` 或 `Forwarded`。
+默认公网 IP 部署不会自动提供 TLS 或发布者身份认证。正式使用建议启用 WSS、换成自有更新签名密钥，并按需要限制 `SPACECHAT_ALLOW_CIDR` 和入口防火墙；IP 访问可使用 SAN 包含该 IP 且客户端信任的证书。若反向代理终止 TLS，必须显式设置 `SPACECHAT_PUBLIC_URL=wss://公开域名/ws`（非默认端口需带端口），并让代理覆盖 `/ws`、`/install/`、`/updates/`、`/api/`；代理到服务端的 WS 后端只能位于可信且受限的网络。动态首装不读取 `X-Forwarded-Proto` 或 `Forwarded`。
 
 ### 升级与持久化
 

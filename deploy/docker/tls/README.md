@@ -4,7 +4,8 @@ Place both `tls.crt` (the complete PEM certificate chain) and `tls.key`
 (the matching private key) in this directory before starting Compose.
 The certificate SAN must match the hostname or IP used by clients.
 
-With neither file present, the server uses plaintext WS for a trusted LAN.
+With neither file present, the server uses plaintext HTTP/WS. The default
+network allowlist accepts all IPv4 and IPv6 clients, including public IPs.
 With just one file, or a dangling certificate/key symlink, startup fails.
 Restart the server after replacing certificates. These files are ignored by
 Git and excluded from the Docker build context.

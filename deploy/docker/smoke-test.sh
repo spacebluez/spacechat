@@ -12,12 +12,20 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$root"
 docker compose version >/dev/null
 docker info >/dev/null
+if [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ]; then
+    for command in curl unzip sha256sum mktemp; do
+        command -v "$command" >/dev/null || {
+            printf 'Linux installer test requires: %s\n' "$command" >&2
+            exit 1
+        }
+    done
+fi
 temporary=$(mktemp -d)
 project="spacechat-smoke-$$-$(basename "$temporary" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')"
 
-# Override every deployment input and bypass the user's .env and override files.
+# Reset deployment inputs and bypass the user's .env and override files.
 export SPACECHAT_PORT=0 SPACECHAT_VERSION=0.4.0 SPACECHAT_MINIMUM_VERSION=0.0.0
-export SPACECHAT_ALLOW_CIDR=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+unset SPACECHAT_ALLOW_CIDR
 export SPACECHAT_PUBLIC_URL=
 export SPACECHAT_SIGNING_KEY_FILE="$root/deploy/docker/default-update-signing.seed"
 export SPACECHAT_CLIENT_CA_FILE="$root/deploy/docker/empty-client-ca.pem"

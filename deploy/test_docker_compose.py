@@ -27,11 +27,11 @@ class DockerComposeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.compose = compose_command()
 
-    def configuration(self, **overrides):
+    def configuration(self, env_file=None, **overrides):
         environment = {
             key: value for key, value in os.environ.items()
             if not key.startswith(("SPACECHAT_", "COMPOSE_"))
-            and key not in ("GOPROXY", "WINDOWS_TERMINAL_URL")
+            and key not in ("GOPROXY", "DEBIAN_MIRROR", "WINDOWS_TERMINAL_URL")
         }
         environment.update(overrides)
         with tempfile.TemporaryDirectory() as directory:
@@ -39,7 +39,7 @@ class DockerComposeTests(unittest.TestCase):
             empty_env.touch()
             result = subprocess.run(
                 self.compose + [
-                    "--env-file", str(empty_env),
+                    "--env-file", str(env_file or empty_env),
                     "-f", str(ROOT / "compose.yaml"), "config", "--format", "json",
                 ],
                 cwd=ROOT, env=environment, text=True, capture_output=True, check=True,
@@ -58,7 +58,7 @@ class DockerComposeTests(unittest.TestCase):
         for name, service in services.items():
             self.assertEqual(name, service["build"]["target"])
             self.assertEqual(
-                "docker.io/library",
+                "docker.m.daocloud.io/library",
                 service["build"]["args"]["SPACECHAT_BASE_IMAGE_PREFIX"],
             )
         self.assertEqual(
@@ -78,6 +78,30 @@ class DockerComposeTests(unittest.TestCase):
         )
         self.assertEqual(18081, services["server"]["ports"][0]["target"])
         self.assertEqual("18081", services["server"]["ports"][0]["published"])
+
+    def test_defaults_allow_public_clients_and_use_download_mirrors(self):
+        services = self.configuration()["services"]
+        self.assertEqual(
+            "0.0.0.0/0,::/0", services["server"]["environment"]["SPACECHAT_ALLOW_CIDR"]
+        )
+        self.assertEqual("", services["server"]["environment"]["SPACECHAT_PUBLIC_URL"])
+        for name in ("artifacts", "server"):
+            self.assertEqual(
+                "https://goproxy.cn,direct", services[name]["build"]["args"]["GOPROXY"]
+            )
+        self.assertEqual(
+            "https://mirrors.aliyun.com", services["artifacts"]["build"]["args"]["DEBIAN_MIRROR"]
+        )
+        self.assertEqual(
+            "https://files.m.daocloud.io/github.com/microsoft/terminal/releases/download/"
+            "v1.24.11911.0/Microsoft.WindowsTerminal_1.24.11911.0_x64.zip",
+            services["artifacts"]["build"]["args"]["WINDOWS_TERMINAL_URL"],
+        )
+
+    def test_example_environment_preserves_deployment_defaults(self):
+        self.assertEqual(
+            self.configuration(), self.configuration(env_file=ROOT / ".env.example")
+        )
 
     def test_private_inputs_and_writable_mounts_are_isolated(self):
         services = self.configuration()["services"]
@@ -127,6 +151,7 @@ class DockerComposeTests(unittest.TestCase):
                 SPACECHAT_SIGNING_KEY_FILE=str(key),
                 SPACECHAT_CLIENT_CA_FILE=str(ca), SPACECHAT_TLS_DIR=str(tls),
                 GOPROXY="https://proxy.example",
+                DEBIAN_MIRROR="https://debian.example",
                 WINDOWS_TERMINAL_URL="https://downloads.example/terminal.zip",
                 SPACECHAT_BASE_IMAGE_PREFIX="public.ecr.aws/docker/library",
             )
@@ -145,6 +170,8 @@ class DockerComposeTests(unittest.TestCase):
             artifacts["build"]["args"]["WINDOWS_TERMINAL_URL"],
         )
         self.assertNotIn("WINDOWS_TERMINAL_URL", server["build"]["args"])
+        self.assertEqual("https://debian.example", artifacts["build"]["args"]["DEBIAN_MIRROR"])
+        self.assertNotIn("DEBIAN_MIRROR", server["build"]["args"])
         self.assertEqual("1.2.3", artifacts["environment"]["SPACECHAT_VERSION"])
         self.assertEqual("1.0.0", artifacts["environment"]["SPACECHAT_MINIMUM_VERSION"])
         self.assertEqual("wss://chat.example/ws", server["environment"]["SPACECHAT_PUBLIC_URL"])

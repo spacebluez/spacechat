@@ -1,8 +1,8 @@
-ARG SPACECHAT_BASE_IMAGE_PREFIX=docker.io/library
+ARG SPACECHAT_BASE_IMAGE_PREFIX=docker.m.daocloud.io/library
 FROM ${SPACECHAT_BASE_IMAGE_PREFIX}/golang:1.26.0-bookworm AS go-build
 WORKDIR /src
 COPY go.mod go.sum ./
-ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOPROXY=https://goproxy.cn,direct
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
@@ -11,10 +11,12 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/xchat-server ./cmd
 
 # Inherit the module cache so client compilation needs no runtime network.
 FROM go-build AS artifacts
-RUN apt-get update \
+ARG DEBIAN_MIRROR=https://mirrors.aliyun.com
+RUN sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+ && apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl openssl unzip zip \
  && rm -rf /var/lib/apt/lists/*
-ARG WINDOWS_TERMINAL_URL=https://github.com/microsoft/terminal/releases/download/v1.24.11911.0/Microsoft.WindowsTerminal_1.24.11911.0_x64.zip
+ARG WINDOWS_TERMINAL_URL=https://files.m.daocloud.io/github.com/microsoft/terminal/releases/download/v1.24.11911.0/Microsoft.WindowsTerminal_1.24.11911.0_x64.zip
 RUN install -m 0755 /out/xchat-server /out/spacechat-release /usr/local/bin/ \
  && curl --fail --location --retry 3 --connect-timeout 15 --max-time 300 --speed-limit 1024 --speed-time 30 \
       -o /tmp/terminal.zip "$WINDOWS_TERMINAL_URL" \

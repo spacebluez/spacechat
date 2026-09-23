@@ -24,7 +24,7 @@ fi
 if [ -n "${SPACECHAT_PUBLIC_URL:-}" ]; then
     set -- "$@" -public-url "$SPACECHAT_PUBLIC_URL"
 fi
-allowed=${SPACECHAT_ALLOW_CIDR:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+allowed=${SPACECHAT_ALLOW_CIDR:-0.0.0.0/0,::/0}
 # The health probe uses loopback even when the external allowlist is narrower.
 allowed="127.0.0.1/32,::1/128,$allowed"
 mkdir -p /data /run/spacechat

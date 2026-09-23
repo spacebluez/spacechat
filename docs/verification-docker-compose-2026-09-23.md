@@ -78,7 +78,7 @@ Docker Hub 和 Go 公共下载源在本机超时，GitHub 大文件下载也出�
 
 ## 镜像源切换复验
 
-云服务器在 Docker Hub 元数据请求阶段超时后，新增 `SPACECHAT_BASE_IMAGE_PREFIX`，统一控制三个基础镜像的仓库前缀。默认 `docker.io/library`；可设置为 `public.ecr.aws/docker/library`，直接由 Compose 解析 ECR 地址。
+云服务器在 Docker Hub 元数据请求阶段超时后，新增 `SPACECHAT_BASE_IMAGE_PREFIX`，统一控制三个基础镜像的仓库前缀。当次变更默认 `docker.io/library`；可设置为 `public.ecr.aws/docker/library`，直接由 Compose 解析 ECR 地址。
 
 - Compose 配置测试 3 项通过，覆盖默认前缀、三个服务的前缀覆盖和构建参数不进入运行环境。
 - 在本机 WSL 执行 `docker compose build --pull`，三个 ECR 元数据请求均成功，解析到上表中的相同摘要；三个目标构建通过。
@@ -86,6 +86,28 @@ Docker Hub 和 Go 公共下载源在本机超时，GitHub 大文件下载也出�
 - Go 模块和 Terminal 下载仍复用已校验的构建缓存；本次未在用户云服务器执行，也不代表其到 ECR 的连接已确认正常。
 
 本次复验日志为 `.cache/docker-validation/spacechat-ecr-build.log` 和 `spacechat-ecr-images.log`。
+
+## 公网默认配置复验
+
+后续将云端验证过的部署配置同步到仓库：
+
+- Compose、容器入口和 `.env.example` 默认允许 `0.0.0.0/0,::/0`，公网安装请求不再被默认内网白名单拒绝。客户端地址按实际安装请求的 IP/主机与端口生成，仍支持显式白名单和公开 URL 覆盖。
+- 默认使用 DaoCloud 基础镜像及 GitHub 文件镜像、`goproxy.cn` 和阿里云 Debian 镜像。新增 `DEBIAN_MIRROR` 构建参数，保留原有 Debian suite、签名密钥和软件包签名校验；Windows Terminal 的版本与固定 SHA-256 不变。
+- 文档明确 HTTP/WS 默认行为、TLS 配置、旧 `.env` 的覆盖优先级，以及更新容器环境变量需要重建容器。Linux 首装测试在构建前检查所需的解压工具。
+
+| 检查 | 结果 |
+| --- | --- |
+| WSL `go test ./internal/server -count=1` | 通过，含公网 IPv4、IPv6 和 IPv4-mapped IPv6 访问回归 |
+| WSL 部署脚本测试 | 39 项通过 |
+| 新增 Debian 源参数后的 Compose 配置复验 | 5 项通过，含示例配置一致性和自定义覆盖 |
+| 阿里云 `test-images.sh` | 三个目标构建及镜像行为检查通过 |
+| 阿里云 `smoke-test.sh` | HTTP/WS 模式通过，退出码 0 |
+| 阿里云 `smoke-test.sh --tls` | HTTPS/WSS 模式通过，退出码 0 |
+| Linux 客户端首装 | 两种模式均实际安装，启动器报告 `spacechat 0.4.0` |
+
+容器验收使用空环境文件、独立随机项目、临时端口和临时数据卷，结束后自动清理。测试机补装了 Linux 客户端需要的 `unzip`。阿里云 Debian 镜像的约 9 MB 索引本次下载用时 39 秒；此前同机直接访问 Debian 源需要数分钟。这是本次实测值，不代表其他网络环境的下载速度。
+
+本机 WSL 到 `goproxy.cn` 的连接超时，完整容器验收因此在阿里云执行；不能将上述结果解释为所有网络都能访问默认下载源。部署者仍可覆盖下载源参数。最终日志保存于 `.cache/docker-validation/spacechat-public-images-final.log`、`spacechat-public-ws-final.log` 和 `spacechat-public-tls-final.log`。
 
 ## 验证边界
 
