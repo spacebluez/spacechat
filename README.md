@@ -187,7 +187,121 @@ go run ./cmd/spacechat-release manifest -version 0.4.0 -minimum 0.3.2 -private-k
 go run ./cmd/spacechat-release installers -version 0.4.0 -server wss://chat.example.invalid/ws -private-key ./spacechat-release.key -windows-package ./spacechat-windows-amd64-0.4.0.zip -linux-package ./spacechat-linux-amd64-0.4.0.zip -out ./installers-0.4.0
 ```
 
-## 服务端部署
+## Docker Compose 一键部署
+
+需要 Docker Engine（Linux 容器）与 Docker Compose v2，宿主机无需 Go、PowerShell、Python 或 systemd。首次构建需要访问基础镜像、Go 模块源和 Windows Terminal 的 GitHub 发布地址。
+
+**默认以明文 WS 监听宿主机所有接口的 `18081` 端口，只适用于可信内网。如果端口可从公网访问，请先完成下文的 WSS 和访问控制配置。**
+
+```sh
+git clone https://github.com/spacebluez/spacechat.git
+cd spacechat
+docker compose up -d --build
+docker compose ps -a
+docker compose logs -f server
+```
+
+`artifacts` 首次启动会编译 Windows/Linux amd64 客户端并生成签名制品，正常结束状态为 `Exited (0)`。`server` 等待制品成功生成后启动，健康检查通过后再启动 `cleanup`。服务端进程和清理进程均以 UID/GID `10001` 运行；入口仅在准备卷权限和复制 TLS 证书时使用 root。制品生成失败时可查看 `docker compose logs artifacts`。
+
+假设服务器的内网地址为 `192.168.1.20`，Linux amd64 首装：
+
+```sh
+curl -fsSL http://192.168.1.20:18081/install/linux | sh
+```
+
+Windows amd64 首装：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod 'http://192.168.1.20:18081/install/windows' | Invoke-Expression"
+```
+
+把示例 IP 替换为客户端实际能访问的地址。首装脚本默认用请求的主机和端口生成下载地址及 `ws://主机:端口/ws` 配置；直接 HTTPS 请求生成 WSS。WS 首装仅授权保存的安装地址使用明文，命令行改连其他远程 WS 地址仍需显式 `--allow-insecure`。
+
+### 容器配置
+
+可复制 `.env.example` 为 `.env` 后修改，无需改 Compose 文件。路径可使用仓库相对路径或宿主机绝对路径，必须预先存在；错误路径不会自动创建。
+
+| 变量 | 默认值 / 用途 |
+| --- | --- |
+| `SPACECHAT_PORT` | `18081`，宿主机端口 |
+| `SPACECHAT_VERSION` | `0.4.0`，客户端与签名清单版本 |
+| `SPACECHAT_MINIMUM_VERSION` | `0.0.0`，最低兼容客户端版本 |
+| `SPACECHAT_ALLOW_CIDR` | 回环及 RFC1918 私网；逗号分隔的允许来源网段 |
+| `SPACECHAT_PUBLIC_URL` | 空；可指定 `ws://主机:端口/ws` 或 `wss://域名/ws` |
+| `SPACECHAT_SIGNING_KEY_FILE` | `./deploy/docker/default-update-signing.seed`，更新签名 seed 文件 |
+| `SPACECHAT_CLIENT_CA_FILE` | `./deploy/docker/empty-client-ca.pem`，可选的公开内部 CA 证书 |
+| `SPACECHAT_TLS_DIR` | `./deploy/docker/tls`，服务端证书目录 |
+| `GOPROXY` | `https://proxy.golang.org,direct`，镜像构建时的 Go 模块源；可替换为可访问的镜像源 |
+| `WINDOWS_TERMINAL_URL` | 默认微软官方 GitHub 发布地址；可指向同版本 ZIP 的下载缓存，固定 SHA-256 校验仍生效 |
+
+健康检查始终允许容器本机回环访问，不依赖外部 CIDR 白名单。服务端按 TCP 连接实际来源做访问控制；不信任转发头。Docker 端口转发或反向代理可能改变服务端看到的来源 IP，需要在宿主机防火墙或代理入口同时限制来源。
+
+### 签名密钥与 WSS
+
+**默认更新签名 seed 是公开材料，任何人都能用它签名，不代表作者或发布者身份认证。** 自有签名私钥只挂载给一次性的 `artifacts`，不会进入服务端、清理容器、运行镜像层或制品卷。制品生成时禁止外部网络访问；镜像构建阶段已下载 Go 依赖和经过固定 SHA-256 校验的 Windows Terminal。
+
+以下密钥和备份命令使用 Linux/POSIX shell。首次部署前可借助构建镜像生成自有 32 字节随机 seed，不要求宿主机安装 OpenSSL：
+
+```sh
+docker compose build artifacts
+umask 077
+docker compose run --rm -T --no-deps --entrypoint openssl artifacts rand -base64 32 > spacechat-release.key
+```
+
+只生成一次并妥善备份，再在 `.env` 设置 `SPACECHAT_SIGNING_KEY_FILE=./spacechat-release.key`。不要覆盖已有签名密钥；该密钥与数据库加密密钥用途不同。
+
+把完整 PEM 证书链和匹配的私钥放入 `deploy/docker/tls/tls.crt`、`deploy/docker/tls/tls.key` 后启动，即启用 WSS；只存在一个文件时启动失败。证书 SAN 必须包含客户端使用的域名或 IP。证书更新后执行 `docker compose restart server`。健康检查仅对容器本机 HTTPS 探测跳过证书校验，客户端继续严格校验证书。
+
+使用内部 CA 时设置 `SPACECHAT_CLIENT_CA_FILE` 指向公开 CA PEM 文件，再重新生成制品；不要传入 TLS 私钥。首次通过 HTTPS 下载安装脚本和安装包的工具也必须信任该 CA：Linux 可先设置 `export CURL_CA_BUNDLE=/path/to/company-ca.pem`，Windows 应先把 CA 安装到当前用户信任库。
+
+公网部署必须在首次启动前完成：启用 WSS、设置 `SPACECHAT_PUBLIC_URL=wss://公开域名/ws`（非默认端口需带端口）、限制 `SPACECHAT_ALLOW_CIDR` 和入口防火墙、换成自有更新签名密钥。若反向代理终止 TLS，必须显式配置该公开 URL，并让代理覆盖 `/ws`、`/install/`、`/updates/`、`/api/`；代理到服务端的 WS 后端只能位于可信且受限的网络。动态首装不读取 `X-Forwarded-Proto` 或 `Forwarded`。
+
+### 升级与持久化
+
+升级源码后使用以下顺序，确保服务端重启并加载同一批新制品：
+
+```sh
+git pull
+docker compose down
+docker compose up -d --build
+```
+
+版本、最低版本、签名密钥或客户端 CA 变化时也使用这一顺序。**更换更新签名密钥后，旧客户端不会信任新签名，必须重新下载安装客户端。** 换密钥时同步提高 `SPACECHAT_VERSION`，因为安装器拒绝覆盖已存在的版本目录。同一版本的制品不会触发在线升级；发布新客户端行为或嵌入 CA 的更新时也应提高版本。
+
+`data` 卷同时保存 `/data/rooms.db`、SQLite 伴随文件和 `/data/encryption.key`；数据库密钥在首次启动时独立随机生成。已有数据库但密钥丢失时服务端拒绝启动。`release-assets` 保存可重新生成的签名制品；`admin-runtime` 仅保存管理 socket，不含私钥。保留原项目名和 Compose 文件所在目录，避免误用另一组空卷。
+
+**`docker compose down` 保留命名卷；`docker compose down -v` 会永久删除数据库及其密钥，没有备份时不可恢复。**
+
+备份前停止聊天和定时清理，完整导出数据卷，再启动原服务：
+
+```sh
+docker compose stop cleanup server
+umask 077
+docker compose run --rm -T --no-deps --entrypoint tar server -C /data -czf - . > spacechat-data.tar.gz
+docker compose start server cleanup
+```
+
+确认归档成功后妥善保管，它含数据库解密密钥。另行备份自有签名密钥、TLS 文件及 `.env`。不要单独复制运行中的 SQLite 主文件。
+
+可在一个全新、空的数据卷中验证恢复（先停止占用同一端口的原服务；`spacechat-restore` 必须是未用过的项目名）：
+
+```sh
+docker compose -p spacechat-restore run --rm -T --no-deps --build --entrypoint tar server -C /data -xzf - < spacechat-data.tar.gz
+docker compose -p spacechat-restore up -d --build
+```
+
+恢复项目使用相同配置与原数据库密钥；确认恢复成功后再决定保留哪个实例，不要向正在运行的卷解压备份。
+
+### 容器历史清理
+
+`cleanup` 每天固定按 `Asia/Shanghai` 00:00 清空全部房间历史。停机错过不补跑，单次失败记录日志并等待次日，不立即重试。手动清理会立即删除全部历史：
+
+```sh
+docker compose run --rm --no-deps cleanup --yes --socket /run/spacechat/admin.sock
+docker compose logs cleanup
+```
+
+## 服务端部署（systemd）
 
 解压完整服务端包后，以 root 运行其中的安装脚本：
 
@@ -271,3 +385,14 @@ python3 -m unittest discover -s deploy -p 'test_*.py'
 多房间服务验收见 docs/verification-rooms-2026-09-17.md；客户端切换验收见 docs/verification-room-switch-2026-09-17.md；0.3.2 界面与 F2 修复验收见 docs/verification-client-ui-0.3.2.md。
 
 Linux 可额外运行 `go test -race ./...`。主要边界：`internal/update` 负责签名、下载和事务更新，`internal/server` 负责更新目录及版本门槛，`cmd/spacechat` 是稳定入口，`cmd/xchat` 是可更新的版本化客户端。
+
+Docker 配置验证不需要启动引擎；真实镜像和端到端测试需要 Linux 容器引擎。后两项会构建镜像，WS/WSS 冒烟脚本使用独立随机项目名并在结束时删除其测试卷，不读取本地 `.env`：
+
+```sh
+python3 -m unittest discover -s deploy -p 'test_docker_compose.py'
+sh deploy/docker/test-images.sh
+sh deploy/docker/smoke-test.sh
+sh deploy/docker/smoke-test.sh --tls
+```
+
+TLS 冒烟需要测试机上的 OpenSSL 和 curl，使用临时证书、自有签名 seed 和客户端 CA；Linux amd64 测试机还会在临时用户目录完成实际首装。容器分支验证状态见 `docs/verification-docker-compose-2026-09-23.md`。

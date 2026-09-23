@@ -85,12 +85,17 @@ class DockerArtifactBuilderTests(unittest.TestCase):
         )
 
     def test_default_seed_is_accepted_by_the_real_release_tool(self):
+        private_seed = self.root / "update-signing.seed"
+        private_seed.write_bytes(
+            (ROOT / "deploy/docker/default-update-signing.seed").read_bytes()
+        )
+        private_seed.chmod(0o600)
         result = subprocess.run(
             [
                 self.release_tool,
                 "public-key",
                 "-private-key",
-                ROOT / "deploy/docker/default-update-signing.seed",
+                private_seed,
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

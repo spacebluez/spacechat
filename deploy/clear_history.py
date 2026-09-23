@@ -4,6 +4,7 @@ import argparse
 import datetime
 import http.client
 import json
+import math
 import os
 import socket
 import sys
@@ -45,7 +46,7 @@ def seconds_until_next_midnight(now):
     local = now.astimezone(SHANGHAI)
     next_date = local.date() + datetime.timedelta(days=1)
     target = datetime.datetime.combine(next_date, datetime.time.min, SHANGHAI)
-    return max(1, int((target - local).total_seconds()))
+    return max(1, math.ceil((target - local).total_seconds()))
 
 
 def run_daily(socket_path, now=datetime.datetime.now, sleep=time.sleep,

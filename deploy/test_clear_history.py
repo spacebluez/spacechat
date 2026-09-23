@@ -67,6 +67,28 @@ class ClearHistoryTests(unittest.TestCase):
         self.assertEqual([1800, 1800], sleeps)
         self.assertEqual(1, clear.call_count)
 
+    def test_fractional_seconds_do_not_run_early_and_retry_at_midnight(self):
+        clock = datetime.datetime(2026, 9, 22, 15, 30, 0, 500000,
+                                  tzinfo=datetime.timezone.utc)
+        sleeps = []
+
+        def advance_until_second_sleep(seconds):
+            nonlocal clock
+            sleeps.append(seconds)
+            if len(sleeps) == 2:
+                raise StopIteration
+            clock += datetime.timedelta(seconds=seconds)
+
+        clear = mock.Mock(side_effect=OSError("offline"))
+        with self.assertRaises(StopIteration):
+            clear_history.run_daily(
+                "/run/admin.sock", now=lambda zone: clock.astimezone(zone),
+                sleep=advance_until_second_sleep, clear=clear, stderr=io.StringIO(),
+            )
+        self.assertEqual([1800, 86400], sleeps)
+        self.assertEqual(datetime.date(2026, 9, 23), clock.astimezone(clear_history.SHANGHAI).date())
+        self.assertEqual(1, clear.call_count)
+
     def test_schedule_and_yes_modes_are_mutually_exclusive(self):
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit) as error:

@@ -10,6 +10,18 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-22-docker-compose-deployment-design.md`
 
+## 实施进度（2026-09-23）
+
+- Tasks 1–6 已在当前分支实现，最近提交为 `22d1fb2`（制品发布事务恢复）。
+- Task 7 已补齐 Dockerfile、构建上下文排除、TLS 入口、健康检查和镜像行为验收脚本；三个真实镜像的构建及行为检查通过。
+- Task 8 已补齐 Compose、三项真实 Compose 配置解析测试、隔离的 WS/WSS 冒烟脚本；两种模式均通过实际客户端首装、重启保留密钥及手动清理验证。
+- Task 9 已补齐 README、`.env.example` 和独立验收记录；Linux 上 18 个 Go 包、37 项部署测试及 `go vet` 全部通过。
+- 复查 Task 5 时修复了秒数向下取整引起的提前清理与一秒后重试，并补充受控时钟回归测试。
+- 已安装并验证 WSL2 Ubuntu、Docker Engine 29.1.3 与 Compose 2.40.3。网络受限时使用官方基础镜像的 ECR 下载入口与校验过的本地依赖缓存；构建允许覆盖下载源，运行时仍断网生成制品。
+- 自动化容器验收已完成；独立桌面客户端聊天、真实版本升级、含历史消息的备份恢复和实际跨午夜运行等人工场景仍待验收，具体边界见验证记录。
+
+本节记录实际实施状态；下方保留原分步执行模板。详细命令、已知失败及剩余验收见 `docs/verification-docker-compose-2026-09-23.md`。
+
 ## Global Constraints
 
 - 默认命令必须是 `docker compose up -d --build`，不能要求宿主机安装 Go、PowerShell、Python 或 systemd。

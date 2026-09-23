@@ -1,0 +1,78 @@
+services:
+  artifacts:
+    build:
+      context: .
+      target: artifacts
+      args:
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+        WINDOWS_TERMINAL_URL: ${WINDOWS_TERMINAL_URL:-https://github.com/microsoft/terminal/releases/download/v1.24.11911.0/Microsoft.WindowsTerminal_1.24.11911.0_x64.zip}
+    environment:
+      SPACECHAT_VERSION: ${SPACECHAT_VERSION:-0.4.0}
+      SPACECHAT_MINIMUM_VERSION: ${SPACECHAT_MINIMUM_VERSION:-0.0.0}
+      SPACECHAT_OUTPUT_DIR: /artifacts
+    volumes:
+      - type: bind
+        source: ${SPACECHAT_SIGNING_KEY_FILE:-./deploy/docker/default-update-signing.seed}
+        target: /run/secrets/update-signing.key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SPACECHAT_CLIENT_CA_FILE:-./deploy/docker/empty-client-ca.pem}
+        target: /run/config/client-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      - release-assets:/artifacts
+    network_mode: none
+    restart: "no"
+
+  server:
+    build:
+      context: .
+      target: server
+      args:
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    depends_on:
+      artifacts:
+        condition: service_completed_successfully
+    environment:
+      SPACECHAT_ALLOW_CIDR: ${SPACECHAT_ALLOW_CIDR:-127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+      SPACECHAT_PUBLIC_URL: ${SPACECHAT_PUBLIC_URL:-}
+    ports:
+      - "${SPACECHAT_PORT:-18081}:18081"
+    volumes:
+      - release-assets:/artifacts:ro
+      - data:/data
+      - admin-runtime:/run/spacechat
+      - type: bind
+        source: ${SPACECHAT_TLS_DIR:-./deploy/docker/tls}
+        target: /tls
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+  cleanup:
+    build:
+      context: .
+      target: cleanup
+    depends_on:
+      server:
+        condition: service_healthy
+    command: ["--schedule-daily", "--socket", "/run/spacechat/admin.sock"]
+    volumes:
+      - admin-runtime:/run/spacechat
+    restart: unless-stopped
+
+volumes:
+  release-assets:
+  data:
+  admin-runtime:

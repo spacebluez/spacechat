@@ -6,6 +6,7 @@
 /.worktrees/
 *.key
 /.env
+/spacechat-data*.tar.gz
 /deploy/docker/tls/*
 !/deploy/docker/tls/README.md
 
